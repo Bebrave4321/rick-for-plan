@@ -513,8 +513,7 @@ class StudyAssistantService:
 
             now = context.now
             if action == "start":
-                task.status = TaskStatus.IN_PROGRESS
-                task.pending_prompt_type = None
+                self.task_executor.mark_task_started(task)
                 await repo.record_task_response(
                     task,
                     source=ResponseSource.BUTTON,
@@ -604,7 +603,7 @@ class StudyAssistantService:
                 await self._reschedule_to_tomorrow(repo, task, now)
                 await self.telegram_client.send_message(event.chat_id, self.response_composer.reschedule_confirmation(task, "내일 저녁"))
             elif action == "suggest":
-                suggestions = self.decision_engine.time_parser.build_reschedule_suggestions(now)
+                suggestions = self.decision_engine.build_reschedule_suggestions(now)
                 await self.telegram_client.send_message(
                     event.chat_id,
                     self.decision_engine.suggestion_text(suggestions, task.end_at - task.start_at),
@@ -635,51 +634,14 @@ class StudyAssistantService:
             if user is None or task is None:
                 return False
 
-            if event.prompt_kind == "prep":
-                await self.telegram_client.send_message(
-                    event.chat_id,
-                    self.response_composer.prep_reminder(task),
-                )
-                task.prep_reminder_sent_at = now
-            elif event.prompt_kind == "checkin":
-                await self.telegram_client.send_message(
-                    event.chat_id,
-                    self.response_composer.checkin_prompt(task),
-                    reply_markup=self.response_composer.checkin_keyboard(task.id),
-                )
-                task.checkin_sent_at = now
-                task.latest_prompt_sent_at = now
-                task.pending_prompt_type = PendingPromptType.CHECKIN
-                task.status = TaskStatus.CHECKIN_PENDING
-            elif event.prompt_kind == "recheck":
-                await self.telegram_client.send_message(
-                    event.chat_id,
-                    self.response_composer.recheck_prompt(task),
-                    reply_markup=self.response_composer.checkin_keyboard(task.id),
-                )
-                task.recheck_sent_at = now
-                task.latest_prompt_sent_at = now
-                task.pending_prompt_type = PendingPromptType.RECHECK
-            elif event.prompt_kind == "progress":
-                await self.telegram_client.send_message(
-                    event.chat_id,
-                    self.response_composer.progress_prompt(task),
-                    reply_markup=self.response_composer.progress_keyboard(task.id),
-                )
-                task.last_progress_check_at = now
-                task.latest_prompt_sent_at = now
-                task.pending_prompt_type = PendingPromptType.PROGRESS
-            elif event.prompt_kind == "completion":
-                await self.telegram_client.send_message(
-                    event.chat_id,
-                    self.response_composer.completion_prompt(task),
-                    reply_markup=self.response_composer.completion_keyboard(task.id),
-                )
-                task.completion_prompt_sent_at = now
-                task.latest_prompt_sent_at = now
-                task.pending_prompt_type = PendingPromptType.COMPLETION
-            else:
+            if not self.task_executor.apply_due_prompt_state(task, prompt_kind=event.prompt_kind, occurred_at=now):
                 return False
+
+            await self.telegram_client.send_message(
+                event.chat_id,
+                self.response_composer.prompt_text(task, event.prompt_kind),
+                reply_markup=self.response_composer.prompt_keyboard(task.id, event.prompt_kind),
+            )
 
             await session.commit()
             return True
@@ -702,7 +664,44 @@ class StudyAssistantService:
             )
             return
 
-        if interpreted.kind in {
+        if self._requires_active_task(interpreted.kind) and active_task is None and interpreted.target_scope != "multiple":
+            await self.telegram_client.send_message(
+                user.telegram_chat_id,
+                "지금 연결할 일정이 없어요. 일정 제목을 같이 보내주거나 오늘 일정을 먼저 확인해볼게요.",
+            )
+            return
+
+        handlers = {
+            "mark_completed": self._handle_completed_text_action,
+            "mark_partial": self._handle_partial_text_action,
+            "mark_missed": self._handle_missed_text_action,
+            "reschedule_tonight": self._handle_tonight_reschedule_text_action,
+            "reschedule_tomorrow": self._handle_tomorrow_reschedule_text_action,
+            "postpone_10": self._handle_postpone_text_action,
+            "postpone_custom": self._handle_postpone_text_action,
+            "cancel_task": self._handle_cancel_text_action,
+            "replan_today": self._handle_replan_today_text_action,
+        }
+        handler = handlers.get(interpreted.kind)
+        if handler is not None:
+            await handler(
+                repo=repo,
+                user=user,
+                active_task=active_task,
+                today_tasks=today_tasks,
+                interpreted=interpreted,
+                raw_text=raw_text,
+                now=now,
+            )
+            return
+
+        await self.telegram_client.send_message(
+            user.telegram_chat_id,
+            "메시지 뜻을 확실히 못 잡았어요. '완료했어', '10분 미뤄줘', '오늘은 쉬고 싶어'처럼 보내주면 바로 반영할게요.",
+        )
+
+    def _requires_active_task(self, kind: str) -> bool:
+        return kind in {
             "mark_completed",
             "mark_partial",
             "mark_missed",
@@ -711,163 +710,145 @@ class StudyAssistantService:
             "postpone_10",
             "postpone_custom",
             "cancel_task",
-        } and active_task is None and interpreted.target_scope != "multiple":
-            await self.telegram_client.send_message(
-                user.telegram_chat_id,
-                "지금 연결할 일정이 없어요. 일정 제목을 같이 보내주거나 오늘 일정을 먼저 확인해볼게요.",
-            )
-            return
+        }
 
-        if interpreted.kind == "mark_completed":
-            await self._mark_task_completed(repo, active_task, ResponseSource.FREE_TEXT, raw_text)
-            await self.telegram_client.send_message(user.telegram_chat_id, f"좋아요. '{active_task.title}' 완료로 기록했어요.")
-            return
+    async def _handle_completed_text_action(self, *, repo, user, active_task, **kwargs) -> None:
+        await self._mark_task_completed(repo, active_task, ResponseSource.FREE_TEXT, kwargs["raw_text"])
+        await self.telegram_client.send_message(user.telegram_chat_id, f"좋아요. '{active_task.title}' 완료로 기록했어요.")
 
-        if interpreted.kind == "mark_partial":
-            await self._mark_task_for_reschedule(
-                repo,
-                active_task,
-                source=ResponseSource.FREE_TEXT,
-                raw_text=raw_text,
-                interpreted_kind=interpreted.kind,
-                interpreted_payload=interpreted.model_dump(mode="json"),
-                result_status=TaskStatus.PARTIAL,
-                feedback_type=FeedbackType.DID_NOT_FINISH,
-                lead_text=f"'{active_task.title}'은 일부 완료로 기록했어요. 다시 잡을까요?",
-                chat_id=user.telegram_chat_id,
-            )
-            return
+    async def _handle_partial_text_action(self, *, repo, user, active_task, interpreted, raw_text: str, **kwargs) -> None:
+        await self._mark_task_for_reschedule(
+            repo,
+            active_task,
+            source=ResponseSource.FREE_TEXT,
+            raw_text=raw_text,
+            interpreted_kind=interpreted.kind,
+            interpreted_payload=interpreted.model_dump(mode="json"),
+            result_status=TaskStatus.PARTIAL,
+            feedback_type=FeedbackType.DID_NOT_FINISH,
+            lead_text=f"'{active_task.title}'은 일부 완료로 기록했어요. 다시 잡을까요?",
+            chat_id=user.telegram_chat_id,
+        )
 
-        if interpreted.kind == "mark_missed":
-            if interpreted.target_scope == "multiple":
-                target_task_ids = {
-                    action.target_task_id
-                    for action in getattr(interpreted, "actions", [])
-                    if getattr(action, "target_task_id", None)
-                }
-                if target_task_ids:
-                    pending_tasks = [task for task in today_tasks if task.id in target_task_ids]
-                else:
-                    pending_tasks = [
-                        task for task in today_tasks
-                        if task.status not in FINAL_TASK_STATUSES and task.end_at <= now
-                    ]
-                for task in pending_tasks:
-                    await repo.record_task_response(
-                        task,
-                        source=ResponseSource.FREE_TEXT,
-                        raw_text=raw_text,
-                        interpreted_kind="mark_missed",
-                        interpreted_payload={
-                            "multi_action": True,
-                            "target_task_ids": list(target_task_ids),
-                        },
-                        result_status=TaskStatus.MISSED,
-                    )
-                await self._replan_multiple_tasks(repo, pending_tasks, now)
-                await self.telegram_client.send_message(
-                    user.telegram_chat_id,
-                    self.response_composer.multiple_missed_replan_summary(pending_tasks),
+    async def _handle_missed_text_action(self, *, repo, user, active_task, today_tasks, interpreted, raw_text: str, now: datetime, **kwargs) -> None:
+        if interpreted.target_scope == "multiple":
+            target_task_ids = {
+                action.target_task_id
+                for action in getattr(interpreted, "actions", [])
+                if getattr(action, "target_task_id", None)
+            }
+            if target_task_ids:
+                pending_tasks = [task for task in today_tasks if task.id in target_task_ids]
+            else:
+                pending_tasks = [
+                    task for task in today_tasks
+                    if task.status not in FINAL_TASK_STATUSES and task.end_at <= now
+                ]
+            for task in pending_tasks:
+                await repo.record_task_response(
+                    task,
+                    source=ResponseSource.FREE_TEXT,
+                    raw_text=raw_text,
+                    interpreted_kind="mark_missed",
+                    interpreted_payload={
+                        "multi_action": True,
+                        "target_task_ids": list(target_task_ids),
+                    },
+                    result_status=TaskStatus.MISSED,
                 )
-                return
-
-            await self._mark_task_for_reschedule(
-                repo,
-                active_task,
-                source=ResponseSource.FREE_TEXT,
-                raw_text=raw_text,
-                interpreted_kind=interpreted.kind,
-                interpreted_payload=interpreted.model_dump(mode="json"),
-                result_status=TaskStatus.MISSED,
-                feedback_type=None,
-                lead_text=f"알겠어요. '{active_task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?",
-                chat_id=user.telegram_chat_id,
-            )
-            return
-
-        if interpreted.kind == "reschedule_tonight":
-            await self._reschedule_to_tonight(repo, active_task, now)
-            await repo.record_task_response(
-                active_task,
-                source=ResponseSource.FREE_TEXT,
-                raw_text=raw_text,
-                interpreted_kind=interpreted.kind,
-                interpreted_payload=interpreted.model_dump(mode="json"),
-                result_status=TaskStatus.RESCHEDULED,
-            )
+            await self._replan_multiple_tasks(repo, pending_tasks, now)
             await self.telegram_client.send_message(
                 user.telegram_chat_id,
-                self.response_composer.reschedule_confirmation(active_task, "오늘 저녁"),
+                self.response_composer.multiple_missed_replan_summary(pending_tasks),
             )
             return
 
-        if interpreted.kind == "reschedule_tomorrow":
-            await self._reschedule_to_tomorrow(repo, active_task, now)
-            await repo.record_task_response(
-                active_task,
-                source=ResponseSource.FREE_TEXT,
-                raw_text=raw_text,
-                interpreted_kind=interpreted.kind,
-                interpreted_payload=interpreted.model_dump(mode="json"),
-                result_status=TaskStatus.RESCHEDULED,
-            )
-            await self.telegram_client.send_message(
-                user.telegram_chat_id,
-                self.response_composer.reschedule_confirmation(active_task, "내일 저녁"),
-            )
-            return
+        await self._mark_task_for_reschedule(
+            repo,
+            active_task,
+            source=ResponseSource.FREE_TEXT,
+            raw_text=raw_text,
+            interpreted_kind=interpreted.kind,
+            interpreted_payload=interpreted.model_dump(mode="json"),
+            result_status=TaskStatus.MISSED,
+            feedback_type=None,
+            lead_text=f"알겠어요. '{active_task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?",
+            chat_id=user.telegram_chat_id,
+        )
 
-        if interpreted.kind in {"postpone_10", "postpone_custom"}:
-            minutes = interpreted.reschedule_minutes or 10
-            await self._shift_task(
-                repo,
-                active_task,
-                minutes=minutes,
-                reason=f"User postponed by {minutes} minutes.",
-                reference_now=now,
-            )
-            await repo.record_task_response(
-                active_task,
-                source=ResponseSource.FREE_TEXT,
-                raw_text=raw_text,
-                interpreted_kind=interpreted.kind,
-                interpreted_payload=interpreted.model_dump(mode="json"),
-                result_status=TaskStatus.RESCHEDULED,
-            )
-            await self.telegram_client.send_message(
-                user.telegram_chat_id,
-                f"좋아요. '{active_task.title}' 일정을 {minutes}분 뒤로 옮겼어요.",
-            )
-            return
-
-        if interpreted.kind == "cancel_task":
-            await self._cancel_task(repo, active_task, reason="User cancelled through text message.")
-            await repo.record_task_response(
-                active_task,
-                source=ResponseSource.FREE_TEXT,
-                raw_text=raw_text,
-                interpreted_kind=interpreted.kind,
-                interpreted_payload=interpreted.model_dump(mode="json"),
-                result_status=TaskStatus.CANCELLED,
-            )
-            await self.telegram_client.send_message(user.telegram_chat_id, f"'{active_task.title}' 일정은 취소로 처리했어요.")
-            return
-
-        if interpreted.kind == "replan_today":
-            unfinished = [
-                task for task in today_tasks
-                if task.status not in FINAL_TASK_STATUSES and task.end_at >= now - timedelta(hours=2)
-            ]
-            await self._replan_multiple_tasks(repo, unfinished, now)
-            await self.telegram_client.send_message(
-                user.telegram_chat_id,
-                "오늘 남은 일정을 다시 정리했어요. 너무 빡빡하지 않게 뒤로 재배치했습니다.",
-            )
-            return
-
+    async def _handle_tonight_reschedule_text_action(self, *, repo, user, active_task, interpreted, raw_text: str, now: datetime, **kwargs) -> None:
+        await self._reschedule_to_tonight(repo, active_task, now)
+        await repo.record_task_response(
+            active_task,
+            source=ResponseSource.FREE_TEXT,
+            raw_text=raw_text,
+            interpreted_kind=interpreted.kind,
+            interpreted_payload=interpreted.model_dump(mode="json"),
+            result_status=TaskStatus.RESCHEDULED,
+        )
         await self.telegram_client.send_message(
             user.telegram_chat_id,
-            "메시지 뜻을 확실히 못 잡았어요. '완료했어', '10분 미뤄줘', '오늘은 쉬고 싶어'처럼 보내주면 바로 반영할게요.",
+            self.response_composer.reschedule_confirmation(active_task, "오늘 저녁"),
+        )
+
+    async def _handle_tomorrow_reschedule_text_action(self, *, repo, user, active_task, interpreted, raw_text: str, now: datetime, **kwargs) -> None:
+        await self._reschedule_to_tomorrow(repo, active_task, now)
+        await repo.record_task_response(
+            active_task,
+            source=ResponseSource.FREE_TEXT,
+            raw_text=raw_text,
+            interpreted_kind=interpreted.kind,
+            interpreted_payload=interpreted.model_dump(mode="json"),
+            result_status=TaskStatus.RESCHEDULED,
+        )
+        await self.telegram_client.send_message(
+            user.telegram_chat_id,
+            self.response_composer.reschedule_confirmation(active_task, "내일 저녁"),
+        )
+
+    async def _handle_postpone_text_action(self, *, repo, user, active_task, interpreted, raw_text: str, now: datetime, **kwargs) -> None:
+        minutes = interpreted.reschedule_minutes or 10
+        await self._shift_task(
+            repo,
+            active_task,
+            minutes=minutes,
+            reason=f"User postponed by {minutes} minutes.",
+            reference_now=now,
+        )
+        await repo.record_task_response(
+            active_task,
+            source=ResponseSource.FREE_TEXT,
+            raw_text=raw_text,
+            interpreted_kind=interpreted.kind,
+            interpreted_payload=interpreted.model_dump(mode="json"),
+            result_status=TaskStatus.RESCHEDULED,
+        )
+        await self.telegram_client.send_message(
+            user.telegram_chat_id,
+            f"좋아요. '{active_task.title}' 일정을 {minutes}분 뒤로 옮겼어요.",
+        )
+
+    async def _handle_cancel_text_action(self, *, repo, user, active_task, interpreted, raw_text: str, **kwargs) -> None:
+        await self._cancel_task(repo, active_task, reason="User cancelled through text message.")
+        await repo.record_task_response(
+            active_task,
+            source=ResponseSource.FREE_TEXT,
+            raw_text=raw_text,
+            interpreted_kind=interpreted.kind,
+            interpreted_payload=interpreted.model_dump(mode="json"),
+            result_status=TaskStatus.CANCELLED,
+        )
+        await self.telegram_client.send_message(user.telegram_chat_id, f"'{active_task.title}' 일정은 취소로 처리했어요.")
+
+    async def _handle_replan_today_text_action(self, *, repo, user, today_tasks, now: datetime, **kwargs) -> None:
+        unfinished = [
+            task for task in today_tasks
+            if task.status not in FINAL_TASK_STATUSES and task.end_at >= now - timedelta(hours=2)
+        ]
+        await self._replan_multiple_tasks(repo, unfinished, now)
+        await self.telegram_client.send_message(
+            user.telegram_chat_id,
+            "오늘 남은 일정을 다시 정리했어요. 너무 빡빡하지 않게 뒤로 재배치했습니다.",
         )
 
     async def _handle_reschedule_followup(self, repo, user, task, raw_text: str, now: datetime) -> bool:
@@ -953,8 +934,7 @@ class StudyAssistantService:
         lead_text: str,
         chat_id: int,
     ) -> None:
-        task.status = result_status
-        task.pending_prompt_type = PendingPromptType.RESCHEDULE
+        self.task_executor.mark_task_for_reschedule(task, result_status=result_status)
         await repo.record_task_response(
             task,
             source=source,

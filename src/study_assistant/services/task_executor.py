@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta
 
-from study_assistant.models.entities import ChangeType, TaskStatus
+from study_assistant.models.entities import ChangeType, PendingPromptType, TaskStatus
 
 
 class TaskExecutor:
@@ -13,6 +13,46 @@ class TaskExecutor:
         task.status = TaskStatus.COMPLETED
         task.completed_at = completed_at
         task.pending_prompt_type = None
+
+    def mark_task_started(self, task) -> None:
+        task.status = TaskStatus.IN_PROGRESS
+        task.pending_prompt_type = None
+
+    def mark_task_for_reschedule(self, task, *, result_status: TaskStatus) -> None:
+        task.status = result_status
+        task.pending_prompt_type = PendingPromptType.RESCHEDULE
+
+    def apply_due_prompt_state(self, task, *, prompt_kind: str, occurred_at: datetime) -> bool:
+        if prompt_kind == "prep":
+            task.prep_reminder_sent_at = occurred_at
+            return True
+
+        if prompt_kind == "checkin":
+            task.checkin_sent_at = occurred_at
+            task.latest_prompt_sent_at = occurred_at
+            task.pending_prompt_type = PendingPromptType.CHECKIN
+            task.status = TaskStatus.CHECKIN_PENDING
+            return True
+
+        if prompt_kind == "recheck":
+            task.recheck_sent_at = occurred_at
+            task.latest_prompt_sent_at = occurred_at
+            task.pending_prompt_type = PendingPromptType.RECHECK
+            return True
+
+        if prompt_kind == "progress":
+            task.last_progress_check_at = occurred_at
+            task.latest_prompt_sent_at = occurred_at
+            task.pending_prompt_type = PendingPromptType.PROGRESS
+            return True
+
+        if prompt_kind == "completion":
+            task.completion_prompt_sent_at = occurred_at
+            task.latest_prompt_sent_at = occurred_at
+            task.pending_prompt_type = PendingPromptType.COMPLETION
+            return True
+
+        return False
 
     async def shift_task(
         self,

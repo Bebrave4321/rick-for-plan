@@ -62,6 +62,9 @@ class DecisionEngine:
         lines.append("원하는 시간을 말로 답장해도 바로 반영할게요.")
         return "\n".join(lines)
 
+    def build_reschedule_suggestions(self, now: datetime) -> list[ParsedTimeExpression]:
+        return self.time_parser.build_reschedule_suggestions(now)
+
     def _clarification_message(self, lead_text: str | None = None) -> str:
         lines = []
         if lead_text:

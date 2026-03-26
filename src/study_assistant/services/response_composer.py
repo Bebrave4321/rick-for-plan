@@ -5,6 +5,28 @@ from study_assistant.services.telegram import inline_keyboard
 
 
 class ResponseComposer:
+    def prompt_text(self, task, prompt_kind: str) -> str:
+        if prompt_kind == "prep":
+            return self.prep_reminder(task)
+        if prompt_kind == "checkin":
+            return self.checkin_prompt(task)
+        if prompt_kind == "recheck":
+            return self.recheck_prompt(task)
+        if prompt_kind == "progress":
+            return self.progress_prompt(task)
+        if prompt_kind == "completion":
+            return self.completion_prompt(task)
+        raise ValueError(f"Unsupported prompt kind: {prompt_kind}")
+
+    def prompt_keyboard(self, task_id: str, prompt_kind: str) -> dict | None:
+        if prompt_kind in {"checkin", "recheck"}:
+            return self.checkin_keyboard(task_id)
+        if prompt_kind == "progress":
+            return self.progress_keyboard(task_id)
+        if prompt_kind == "completion":
+            return self.completion_keyboard(task_id)
+        return None
+
     def start_message(self) -> str:
         return (
             "공부 일정 비서예요.\n"
