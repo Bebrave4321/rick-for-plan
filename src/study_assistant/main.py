@@ -9,10 +9,14 @@ from study_assistant.api.routes import router
 from study_assistant.core.config import get_settings
 from study_assistant.db.session import SessionFactory, init_db
 from study_assistant.services.assistant import StudyAssistantService
+from study_assistant.services.assistant_brain import AssistantBrain
 from study_assistant.services.message_interpreter import MessageInterpreterService
 from study_assistant.services.openai_client import OpenAIAssistantClient
 from study_assistant.services.planning import HeuristicPlanningService, PlanningService
+from study_assistant.services.response_composer import ResponseComposer
+from study_assistant.services.task_executor import TaskExecutor
 from study_assistant.services.telegram import TelegramBotClient
+from study_assistant.services.weekly_report_service import WeeklyReportService
 
 
 def build_service() -> StudyAssistantService:
@@ -23,7 +27,11 @@ def build_service() -> StudyAssistantService:
         openai_client=openai_client,
     )
     interpreter = MessageInterpreterService(openai_client=openai_client)
+    assistant_brain = AssistantBrain(message_interpreter=interpreter)
     telegram_client = TelegramBotClient(settings)
+    response_composer = ResponseComposer()
+    task_executor = TaskExecutor(settings.timezone)
+    weekly_report_service = WeeklyReportService(settings.timezone)
     return StudyAssistantService(
         settings=settings,
         session_factory=SessionFactory,
@@ -31,6 +39,10 @@ def build_service() -> StudyAssistantService:
         message_interpreter=interpreter,
         telegram_client=telegram_client,
         openai_client=openai_client,
+        assistant_brain=assistant_brain,
+        response_composer=response_composer,
+        task_executor=task_executor,
+        weekly_report_service=weekly_report_service,
     )
 
 

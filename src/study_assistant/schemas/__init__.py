@@ -1,4 +1,6 @@
 from study_assistant.schemas.contracts import (
+    ActionProposal,
+    BrainResult,
     BusyDayInput,
     CreateUserRequest,
     DashboardResponse,
@@ -10,11 +12,14 @@ from study_assistant.schemas.contracts import (
     TaskView,
     UnavailableBlockInput,
     UserSummary,
+    WeeklyReportResponse,
     WeeklyPlanDraft,
     WeeklyPlanningRequest,
 )
 
 __all__ = [
+    "ActionProposal",
+    "BrainResult",
     "BusyDayInput",
     "CreateUserRequest",
     "DashboardResponse",
@@ -26,6 +31,7 @@ __all__ = [
     "TaskView",
     "UnavailableBlockInput",
     "UserSummary",
+    "WeeklyReportResponse",
     "WeeklyPlanDraft",
     "WeeklyPlanningRequest",
 ]

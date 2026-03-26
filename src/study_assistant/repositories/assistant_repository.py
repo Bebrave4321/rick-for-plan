@@ -184,6 +184,47 @@ class AssistantRepository:
         )
         return result.scalars().all()
 
+    async def list_tasks_between(
+        self,
+        user_id: str,
+        *,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> Sequence[StudyTask]:
+        result = await self.session.execute(
+            select(StudyTask)
+            .where(
+                StudyTask.user_id == user_id,
+                StudyTask.start_at >= start_at,
+                StudyTask.start_at < end_at,
+            )
+            .order_by(StudyTask.start_at.asc())
+        )
+        return result.scalars().all()
+
+    async def list_change_logs_between(
+        self,
+        user_id: str,
+        *,
+        start_at: datetime,
+        end_at: datetime,
+        change_type: ChangeType | None = None,
+    ) -> Sequence[TaskChangeLog]:
+        statement = (
+            select(TaskChangeLog)
+            .join(StudyTask, StudyTask.id == TaskChangeLog.task_id)
+            .where(
+                StudyTask.user_id == user_id,
+                TaskChangeLog.created_at >= start_at,
+                TaskChangeLog.created_at < end_at,
+            )
+            .order_by(TaskChangeLog.created_at.asc())
+        )
+        if change_type is not None:
+            statement = statement.where(TaskChangeLog.change_type == change_type)
+        result = await self.session.execute(statement)
+        return result.scalars().all()
+
     async def get_active_message_task(self, user_id: str, now: datetime) -> StudyTask | None:
         result = await self.session.execute(
             select(StudyTask)

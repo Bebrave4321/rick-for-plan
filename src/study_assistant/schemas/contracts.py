@@ -142,3 +142,66 @@ class InterpretedMessage(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     reschedule_minutes: int | None = None
     feedback_type: FeedbackKind = None
+
+
+class ActionProposal(BaseModel):
+    kind: IntentKind
+    target_scope: Literal["active_task", "today", "multiple", "none"] = "none"
+    target_task_id: str | None = None
+    summary: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reschedule_minutes: int | None = None
+    feedback_type: FeedbackKind = None
+
+
+class BrainResult(BaseModel):
+    actions: list[ActionProposal] = Field(default_factory=list)
+    summary: str = ""
+    needs_clarification: bool = False
+    clarification_message: str | None = None
+
+    @property
+    def primary_action(self) -> ActionProposal | None:
+        return self.actions[0] if self.actions else None
+
+    @property
+    def kind(self) -> IntentKind:
+        if self.primary_action is None:
+            return "unknown"
+        return self.primary_action.kind
+
+    @property
+    def target_scope(self) -> Literal["active_task", "today", "multiple", "none"]:
+        if len(self.actions) > 1:
+            return "multiple"
+        if self.primary_action is None:
+            return "none"
+        return self.primary_action.target_scope
+
+    @property
+    def confidence(self) -> float:
+        if self.primary_action is None:
+            return 0.0
+        return self.primary_action.confidence
+
+    @property
+    def reschedule_minutes(self) -> int | None:
+        if self.primary_action is None:
+            return None
+        return self.primary_action.reschedule_minutes
+
+    @property
+    def feedback_type(self) -> FeedbackKind:
+        if self.primary_action is None:
+            return None
+        return self.primary_action.feedback_type
+
+
+class WeeklyReportResponse(BaseModel):
+    week_start_date: date
+    week_end_date: date
+    total_tasks: int
+    completed_tasks: int
+    completion_rate: float = Field(ge=0.0, le=1.0)
+    rescheduled_count: int = Field(ge=0)
+    best_time_window: str | None = None

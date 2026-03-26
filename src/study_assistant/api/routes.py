@@ -3,7 +3,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from study_assistant.api.dependencies import get_service
-from study_assistant.schemas.contracts import CreateUserRequest, DashboardResponse, PlanSubmissionRequest
+from study_assistant.schemas.contracts import (
+    CreateUserRequest,
+    DashboardResponse,
+    PlanSubmissionRequest,
+    WeeklyReportResponse,
+)
 
 router = APIRouter()
 
@@ -35,6 +40,14 @@ async def confirm_weekly_plan(plan_id: str, service=Depends(get_service)):
 async def get_dashboard(telegram_user_id: int, service=Depends(get_service)):
     try:
         return await service.get_dashboard(telegram_user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/api/users/{telegram_user_id}/weekly-report", response_model=WeeklyReportResponse)
+async def get_weekly_report(telegram_user_id: int, service=Depends(get_service)):
+    try:
+        return await service.get_weekly_report(telegram_user_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
