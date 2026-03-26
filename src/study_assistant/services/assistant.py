@@ -439,7 +439,7 @@ class StudyAssistantService:
                 await self.telegram_client.send_message(chat_id, f"'{task.title}' 일정을 10분 뒤로 옮겼어요.")
             elif action == "skip":
                 task.status = TaskStatus.MISSED
-                task.pending_prompt_type = None
+                task.pending_prompt_type = PendingPromptType.RESCHEDULE
                 await repo.record_task_response(
                     task,
                     source=ResponseSource.BUTTON,
@@ -450,7 +450,7 @@ class StudyAssistantService:
                 )
                 await self.telegram_client.send_message(
                     chat_id,
-                    f"괜찮아요. '{task.title}'은 못 한 것으로 기록했어요. 다시 잡을까요?",
+                    self._render_reschedule_prompt(f"괜찮아요. '{task.title}'은 못 한 것으로 기록했어요. 다시 잡을까요?"),
                     reply_markup=self._build_reschedule_keyboard(task.id),
                 )
             elif action == "progress_ok":
@@ -478,7 +478,7 @@ class StudyAssistantService:
                 await self.telegram_client.send_message(chat_id, f"좋아요. '{task.title}' 완료로 기록했어요.")
             elif action == "partial":
                 task.status = TaskStatus.PARTIAL
-                task.pending_prompt_type = None
+                task.pending_prompt_type = PendingPromptType.RESCHEDULE
                 await repo.record_task_response(
                     task,
                     source=ResponseSource.BUTTON,
@@ -490,12 +490,12 @@ class StudyAssistantService:
                 )
                 await self.telegram_client.send_message(
                     chat_id,
-                    f"'{task.title}'은 일부 완료로 기록했어요. 남은 분량을 다시 잡을까요?",
+                    self._render_reschedule_prompt(f"'{task.title}'은 일부 완료로 기록했어요. 남은 분량을 다시 잡을까요?"),
                     reply_markup=self._build_reschedule_keyboard(task.id),
                 )
             elif action == "missed":
                 task.status = TaskStatus.MISSED
-                task.pending_prompt_type = None
+                task.pending_prompt_type = PendingPromptType.RESCHEDULE
                 await repo.record_task_response(
                     task,
                     source=ResponseSource.BUTTON,
@@ -506,15 +506,17 @@ class StudyAssistantService:
                 )
                 await self.telegram_client.send_message(
                     chat_id,
-                    f"알겠어요. '{task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?",
+                    self._render_reschedule_prompt(f"알겠어요. '{task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?"),
                     reply_markup=self._build_reschedule_keyboard(task.id),
                 )
             elif action == "reschedTonight":
                 await self._reschedule_to_tonight(repo, task, now)
-                await self.telegram_client.send_message(chat_id, f"'{task.title}'을 오늘 저녁으로 옮겼어요.")
+                await self.telegram_client.send_message(chat_id, self._render_reschedule_confirmation(task, "오늘 저녁"))
             elif action == "reschedTomorrow":
                 await self._reschedule_to_tomorrow(repo, task, now)
-                await self.telegram_client.send_message(chat_id, f"'{task.title}'을 내일 저녁으로 옮겼어요.")
+                await self.telegram_client.send_message(chat_id, self._render_reschedule_confirmation(task, "내일 저녁"))
+            elif action == "freeform":
+                await self.telegram_client.send_message(chat_id, self._render_freeform_reschedule_help())
             elif action == "cancel":
                 old_start = task.start_at
                 old_end = task.end_at
@@ -553,7 +555,16 @@ class StudyAssistantService:
             )
             return
 
-        if interpreted.kind in {"mark_completed", "mark_partial", "mark_missed", "postpone_10", "postpone_custom", "cancel_task"} and active_task is None:
+        if interpreted.kind in {
+            "mark_completed",
+            "mark_partial",
+            "mark_missed",
+            "reschedule_tonight",
+            "reschedule_tomorrow",
+            "postpone_10",
+            "postpone_custom",
+            "cancel_task",
+        } and active_task is None:
             await self.telegram_client.send_message(
                 user.telegram_chat_id,
                 "지금 연결할 일정이 없어요. 일정 제목을 같이 보내주거나 오늘 일정을 먼저 확인해볼게요.",
@@ -567,7 +578,7 @@ class StudyAssistantService:
 
         if interpreted.kind == "mark_partial":
             active_task.status = TaskStatus.PARTIAL
-            active_task.pending_prompt_type = None
+            active_task.pending_prompt_type = PendingPromptType.RESCHEDULE
             await repo.record_task_response(
                 active_task,
                 source=ResponseSource.FREE_TEXT,
@@ -579,7 +590,7 @@ class StudyAssistantService:
             )
             await self.telegram_client.send_message(
                 user.telegram_chat_id,
-                f"'{active_task.title}'은 일부 완료로 기록했어요. 다시 잡을까요?",
+                self._render_reschedule_prompt(f"'{active_task.title}'은 일부 완료로 기록했어요. 다시 잡을까요?"),
                 reply_markup=self._build_reschedule_keyboard(active_task.id),
             )
             return
@@ -598,7 +609,7 @@ class StudyAssistantService:
                 return
 
             active_task.status = TaskStatus.MISSED
-            active_task.pending_prompt_type = None
+            active_task.pending_prompt_type = PendingPromptType.RESCHEDULE
             await repo.record_task_response(
                 active_task,
                 source=ResponseSource.FREE_TEXT,
@@ -609,8 +620,40 @@ class StudyAssistantService:
             )
             await self.telegram_client.send_message(
                 user.telegram_chat_id,
-                f"알겠어요. '{active_task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?",
+                self._render_reschedule_prompt(f"알겠어요. '{active_task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?"),
                 reply_markup=self._build_reschedule_keyboard(active_task.id),
+            )
+            return
+
+        if interpreted.kind == "reschedule_tonight":
+            await self._reschedule_to_tonight(repo, active_task, now)
+            await repo.record_task_response(
+                active_task,
+                source=ResponseSource.FREE_TEXT,
+                raw_text=raw_text,
+                interpreted_kind=interpreted.kind,
+                interpreted_payload=interpreted.model_dump(mode="json"),
+                result_status=TaskStatus.RESCHEDULED,
+            )
+            await self.telegram_client.send_message(
+                user.telegram_chat_id,
+                self._render_reschedule_confirmation(active_task, "오늘 저녁"),
+            )
+            return
+
+        if interpreted.kind == "reschedule_tomorrow":
+            await self._reschedule_to_tomorrow(repo, active_task, now)
+            await repo.record_task_response(
+                active_task,
+                source=ResponseSource.FREE_TEXT,
+                raw_text=raw_text,
+                interpreted_kind=interpreted.kind,
+                interpreted_payload=interpreted.model_dump(mode="json"),
+                result_status=TaskStatus.RESCHEDULED,
+            )
+            await self.telegram_client.send_message(
+                user.telegram_chat_id,
+                self._render_reschedule_confirmation(active_task, "내일 저녁"),
             )
             return
 
@@ -943,6 +986,22 @@ class StudyAssistantService:
             lines.append("어제 기록된 일정은 없었어요. 오늘 일정부터 같이 정리해볼까요?")
         return "\n".join(lines)
 
+    def _render_reschedule_prompt(self, lead_text: str) -> str:
+        return (
+            f"{lead_text}\n"
+            "버튼 대신 '오늘 저녁으로', '내일 저녁으로', '취소할게요'라고 답장해도 돼요."
+        )
+
+    def _render_freeform_reschedule_help(self) -> str:
+        return "좋아요. '오늘 저녁으로', '내일 저녁으로', '취소할게요'처럼 말로 답장해도 돼요."
+
+    def _render_reschedule_confirmation(self, task, label: str) -> str:
+        self._localize_task_datetimes(task)
+        return (
+            f"'{task.title}'을 {label} 일정으로 옮겼어요.\n"
+            f"새 시간: {task.start_at:%m/%d %H:%M} - {task.end_at:%H:%M}"
+        )
+
     def _build_checkin_keyboard(self, task_id: str) -> dict:
         return inline_keyboard(
             [
@@ -970,6 +1029,7 @@ class StudyAssistantService:
         return inline_keyboard(
             [
                 [("오늘 저녁으로", f"task:{task_id}:reschedTonight"), ("내일 저녁으로", f"task:{task_id}:reschedTomorrow")],
+                [("말로 답장할게요", f"task:{task_id}:freeform")],
                 [("취소할게요", f"task:{task_id}:cancel")],
             ]
         )

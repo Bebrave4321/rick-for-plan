@@ -26,7 +26,7 @@ class MessageInterpreterService:
     def _rule_based_interpretation(self, text: str, active_task, today_tasks, now: datetime) -> InterpretedMessage:
         normalized = text.strip().lower()
 
-        if normalized == "/plan" or text in {"이번 주 계획 짜줘", "이번 주 계획"}:
+        if normalized == "/plan" or normalized in {"이번 주 계획", "주간 계획"}:
             return InterpretedMessage(
                 kind="weekly_plan_request",
                 target_scope="none",
@@ -34,7 +34,7 @@ class MessageInterpreterService:
                 confidence=1.0,
             )
 
-        if "오늘" in text and ("쉬고" in text or "쉴래" in text or "쉬고 싶" in text):
+        if "오늘" in normalized and any(keyword in normalized for keyword in ["쉬", "그만", "정리"]):
             return InterpretedMessage(
                 kind="replan_today",
                 target_scope="today",
@@ -42,7 +42,7 @@ class MessageInterpreterService:
                 confidence=0.95,
             )
 
-        if "이번 주" in text and ("비가용" in text or "목표" in text):
+        if "이번 주" in normalized and any(keyword in normalized for keyword in ["비가용", "목표", "시험", "마감"]):
             return InterpretedMessage(
                 kind="weekly_plan_input",
                 target_scope="none",
@@ -50,7 +50,23 @@ class MessageInterpreterService:
                 confidence=0.7,
             )
 
-        if any(keyword in text for keyword in ["다 했", "끝냈", "완료", "끝남"]):
+        if any(keyword in normalized for keyword in ["오늘 저녁", "오늘저녁", "오늘 밤", "오늘밤"]):
+            return InterpretedMessage(
+                kind="reschedule_tonight",
+                target_scope="active_task" if active_task else "none",
+                summary="Reschedule to tonight.",
+                confidence=0.97,
+            )
+
+        if any(keyword in normalized for keyword in ["내일 저녁", "내일저녁", "내일 밤", "내일밤"]):
+            return InterpretedMessage(
+                kind="reschedule_tomorrow",
+                target_scope="active_task" if active_task else "none",
+                summary="Reschedule to tomorrow evening.",
+                confidence=0.97,
+            )
+
+        if any(keyword in normalized for keyword in ["완료", "끝냈", "다 했", "다했", "끝남"]):
             return InterpretedMessage(
                 kind="mark_completed",
                 target_scope="active_task" if active_task else "none",
@@ -58,8 +74,8 @@ class MessageInterpreterService:
                 confidence=0.95,
             )
 
-        if any(keyword in text for keyword in ["못 했", "못했", "못 함", "못함"]):
-            scope = "multiple" if any(keyword in text for keyword in ["둘 다", "전부", "전체"]) else "active_task"
+        if any(keyword in normalized for keyword in ["못 했", "못했", "못 함", "못함"]):
+            scope = "multiple" if any(keyword in normalized for keyword in ["둘 다", "전부", "전체"]) else "active_task"
             return InterpretedMessage(
                 kind="mark_missed",
                 target_scope=scope if today_tasks else "none",
@@ -67,7 +83,7 @@ class MessageInterpreterService:
                 confidence=0.94,
             )
 
-        if any(keyword in text for keyword in ["일부", "조금 했", "반만", "다 못 끝", "다 못끝"]):
+        if any(keyword in normalized for keyword in ["일부", "조금", "반만", "다 못", "덜 했", "덜했"]):
             return InterpretedMessage(
                 kind="mark_partial",
                 target_scope="active_task" if active_task else "none",
@@ -76,7 +92,7 @@ class MessageInterpreterService:
                 feedback_type="did_not_finish",
             )
 
-        if any(keyword in text for keyword in ["취소", "안 할래", "안할래"]):
+        if any(keyword in normalized for keyword in ["취소", "안 할래", "안할래"]):
             return InterpretedMessage(
                 kind="cancel_task",
                 target_scope="active_task" if active_task else "none",
@@ -84,7 +100,7 @@ class MessageInterpreterService:
                 confidence=0.9,
             )
 
-        if "10분" in text and any(keyword in text for keyword in ["미뤄", "미뤄줘", "옮겨", "늦춰"]):
+        if "10분" in normalized and any(keyword in normalized for keyword in ["미뤄", "늦춰", "옮겨"]):
             return InterpretedMessage(
                 kind="postpone_10",
                 target_scope="active_task" if active_task else "none",
@@ -93,7 +109,7 @@ class MessageInterpreterService:
                 reschedule_minutes=10,
             )
 
-        if any(keyword in text for keyword in ["미뤄", "옮겨", "늦춰"]):
+        if any(keyword in normalized for keyword in ["미뤄", "늦춰", "옮겨"]):
             return InterpretedMessage(
                 kind="postpone_custom",
                 target_scope="active_task" if active_task else "none",

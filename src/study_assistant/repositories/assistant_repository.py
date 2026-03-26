@@ -190,7 +190,6 @@ class AssistantRepository:
             .where(
                 StudyTask.user_id == user_id,
                 StudyTask.pending_prompt_type.is_not(None),
-                StudyTask.status.not_in(FINAL_TASK_STATUSES),
             )
             .order_by(desc(StudyTask.latest_prompt_sent_at))
         )

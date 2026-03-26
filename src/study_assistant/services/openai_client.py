@@ -198,6 +198,8 @@ class OpenAIAssistantClient:
                         "mark_completed",
                         "mark_partial",
                         "mark_missed",
+                        "reschedule_tonight",
+                        "reschedule_tomorrow",
                         "postpone_10",
                         "postpone_custom",
                         "cancel_task",

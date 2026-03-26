@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from study_assistant.core.config import Settings
 from study_assistant.db.session import Base
 from study_assistant.models.entities import PendingPromptType, StudyTask, TaskSource, TaskStatus
+from study_assistant.services.message_interpreter import MessageInterpreterService
 from study_assistant.services.assistant import StudyAssistantService
 
 
@@ -27,6 +28,7 @@ class DummyTask:
 
 class DummyClient:
     def __init__(self):
+        self.enabled = False
         self.webhook_calls = 0
         self.messages = []
 
@@ -44,12 +46,6 @@ class DummyClient:
                 "reply_markup": reply_markup,
             }
         )
-
-
-class DummyInterpreter:
-    async def interpret(self, **kwargs):
-        raise AssertionError("Interpreter should not be called for fast test commands.")
-
 
 def build_service():
     settings = Settings(
@@ -84,7 +80,7 @@ async def build_db_service(db_name: str):
         ),
         session_factory=session_factory,
         planning_service=None,
-        message_interpreter=DummyInterpreter(),
+        message_interpreter=MessageInterpreterService(openai_client=DummyClient()),
         telegram_client=telegram_client,
         openai_client=DummyClient(),
     )
@@ -192,6 +188,51 @@ async def test_delay10_suppresses_duplicate_prep_reminder_for_immediate_reschedu
             assert task.pending_prompt_type is None
 
         assert "10분 뒤로 옮겼어요" in telegram_client.messages[-1]["text"]
+    finally:
+        await engine.dispose()
+        if db_path.exists():
+            db_path.unlink()
+
+
+@pytest.mark.asyncio
+async def test_reschedule_prompt_accepts_free_text_and_confirms_exact_time():
+    service, telegram_client, session_factory, engine, db_path = await build_db_service(".assistant-reschedule-text.db")
+
+    try:
+        await service.process_text_message(
+            telegram_user_id=1003,
+            chat_id=1003,
+            display_name="LG",
+            text="/testcomplete",
+        )
+        await service.process_text_message(
+            telegram_user_id=1003,
+            chat_id=1003,
+            display_name="LG",
+            text="못 했어요",
+        )
+
+        async with session_factory() as session:
+            task = (await session.execute(select(StudyTask))).scalar_one()
+            assert task.status == TaskStatus.MISSED
+            assert task.pending_prompt_type == PendingPromptType.RESCHEDULE
+
+        assert "버튼 대신 '오늘 저녁으로'" in telegram_client.messages[-1]["text"]
+
+        await service.process_text_message(
+            telegram_user_id=1003,
+            chat_id=1003,
+            display_name="LG",
+            text="오늘 저녁으로",
+        )
+
+        async with session_factory() as session:
+            task = (await session.execute(select(StudyTask))).scalar_one()
+            assert task.status == TaskStatus.RESCHEDULED
+            assert task.pending_prompt_type is None
+
+        assert "새 시간:" in telegram_client.messages[-1]["text"]
+        assert "19:00" in telegram_client.messages[-1]["text"]
     finally:
         await engine.dispose()
         if db_path.exists():
