@@ -368,115 +368,14 @@ class StudyAssistantService:
             today_tasks = context.today_tasks
 
             command = (event.text or "").strip().lower()
-
-            if command == "/start":
+            if await self._handle_command(
+                repo=repo,
+                user=user,
+                chat_id=event.chat_id,
+                command=command,
+                now=now,
+            ):
                 await session.commit()
-                await self.telegram_client.send_message(event.chat_id, self.response_composer.start_message())
-                return
-
-            if command == "/plan":
-                await session.commit()
-                await self.telegram_client.send_message(event.chat_id, self.response_composer.plan_help_message())
-                return
-
-            if command in {"/id", "/me"}:
-                await session.commit()
-                await self.telegram_client.send_message(
-                    event.chat_id,
-                    (
-                        f"telegram_user_id: {user.telegram_user_id}\n"
-                        f"telegram_chat_id: {user.telegram_chat_id}"
-                    ),
-                )
-                return
-
-            if command in {"/weeklyreport", "/report"}:
-                report = await self.weekly_report_service.build_weekly_report(
-                    repo,
-                    user=user,
-                    reference_date=now.date(),
-                )
-                await session.commit()
-                await self.telegram_client.send_message(
-                    event.chat_id,
-                    self.response_composer.weekly_report(report),
-                )
-                return
-
-            if command == "/testcheckin":
-                task = await self._create_manual_test_task(
-                    repo,
-                    user=user,
-                    title="빠른 체크인 테스트",
-                    start_at=now,
-                    end_at=now + timedelta(minutes=25),
-                    status=TaskStatus.CHECKIN_PENDING,
-                    pending_prompt_type=PendingPromptType.CHECKIN,
-                    prompt_sent_at=now,
-                )
-                await session.commit()
-                await self.telegram_client.send_message(
-                    event.chat_id,
-                    f"빠른 테스트예요. 지금 '{task.title}' 시작했나요?",
-                    reply_markup=self.response_composer.checkin_keyboard(task.id),
-                )
-                return
-
-            if command == "/testcomplete":
-                task = await self._create_manual_test_task(
-                    repo,
-                    user=user,
-                    title="빠른 종료 테스트",
-                    start_at=now - timedelta(minutes=25),
-                    end_at=now - timedelta(minutes=5),
-                    status=TaskStatus.IN_PROGRESS,
-                    pending_prompt_type=PendingPromptType.COMPLETION,
-                    prompt_sent_at=now,
-                )
-                await session.commit()
-                await self.telegram_client.send_message(
-                    event.chat_id,
-                    f"빠른 테스트예요. '{task.title}' 마무리됐어요?",
-                    reply_markup=self.response_composer.completion_keyboard(task.id),
-                )
-                return
-
-            if command == "/testcheckin":
-                task = await self._create_manual_test_task(
-                    repo,
-                    user=user,
-                    title="빠른 체크인 테스트",
-                    start_at=now,
-                    end_at=now + timedelta(minutes=25),
-                    status=TaskStatus.CHECKIN_PENDING,
-                    pending_prompt_type=PendingPromptType.CHECKIN,
-                    prompt_sent_at=now,
-                )
-                await session.commit()
-                await self.telegram_client.send_message(
-                    event.chat_id,
-                    f"빠른 테스트예요. 지금 '{task.title}' 시작했나요?",
-                    reply_markup=self.response_composer.checkin_keyboard(task.id),
-                )
-                return
-
-            if command == "/testcomplete":
-                task = await self._create_manual_test_task(
-                    repo,
-                    user=user,
-                    title="빠른 종료 테스트",
-                    start_at=now - timedelta(minutes=25),
-                    end_at=now - timedelta(minutes=5),
-                    status=TaskStatus.IN_PROGRESS,
-                    pending_prompt_type=PendingPromptType.COMPLETION,
-                    prompt_sent_at=now,
-                )
-                await session.commit()
-                await self.telegram_client.send_message(
-                    event.chat_id,
-                    f"빠른 테스트예요. '{task.title}' 마무리됐어요?",
-                    reply_markup=self.response_composer.completion_keyboard(task.id),
-                )
                 return
 
             if (
@@ -514,6 +413,75 @@ class StudyAssistantService:
                 now,
             )
             await session.commit()
+
+    async def _handle_command(self, repo, user, chat_id: int, command: str, now: datetime) -> bool:
+        if command == "/start":
+            await self.telegram_client.send_message(chat_id, self.response_composer.start_message())
+            return True
+
+        if command == "/plan":
+            await self.telegram_client.send_message(chat_id, self.response_composer.plan_help_message())
+            return True
+
+        if command in {"/id", "/me"}:
+            await self.telegram_client.send_message(
+                chat_id,
+                (
+                    f"telegram_user_id: {user.telegram_user_id}\n"
+                    f"telegram_chat_id: {user.telegram_chat_id}"
+                ),
+            )
+            return True
+
+        if command in {"/weeklyreport", "/report"}:
+            report = await self.weekly_report_service.build_weekly_report(
+                repo,
+                user=user,
+                reference_date=now.date(),
+            )
+            await self.telegram_client.send_message(
+                chat_id,
+                self.response_composer.weekly_report(report),
+            )
+            return True
+
+        if command == "/testcheckin":
+            task = await self._create_manual_test_task(
+                repo,
+                user=user,
+                title="빠른 체크인 테스트",
+                start_at=now,
+                end_at=now + timedelta(minutes=25),
+                status=TaskStatus.CHECKIN_PENDING,
+                pending_prompt_type=PendingPromptType.CHECKIN,
+                prompt_sent_at=now,
+            )
+            await self.telegram_client.send_message(
+                chat_id,
+                f"빠른 테스트예요. 지금 '{task.title}' 시작했나요?",
+                reply_markup=self.response_composer.checkin_keyboard(task.id),
+            )
+            return True
+
+        if command == "/testcomplete":
+            task = await self._create_manual_test_task(
+                repo,
+                user=user,
+                title="빠른 종료 테스트",
+                start_at=now - timedelta(minutes=25),
+                end_at=now - timedelta(minutes=5),
+                status=TaskStatus.IN_PROGRESS,
+                pending_prompt_type=PendingPromptType.COMPLETION,
+                prompt_sent_at=now,
+            )
+            await self.telegram_client.send_message(
+                chat_id,
+                f"빠른 테스트예요. '{task.title}' 마무리됐어요?",
+                reply_markup=self.response_composer.completion_keyboard(task.id),
+            )
+            return True
+
+        return False
 
     async def _handle_button_action_event(self, event: InternalEvent) -> None:
         try:
@@ -561,20 +529,17 @@ class StudyAssistantService:
                 )
                 await self.telegram_client.send_message(event.chat_id, f"'{task.title}' 일정을 10분 뒤로 옮겼어요.")
             elif action == "skip":
-                task.status = TaskStatus.MISSED
-                task.pending_prompt_type = PendingPromptType.RESCHEDULE
-                await repo.record_task_response(
+                await self._mark_task_for_reschedule(
+                    repo,
                     task,
                     source=ResponseSource.BUTTON,
                     raw_text="skip",
                     interpreted_kind="mark_missed",
                     interpreted_payload={"action": action},
                     result_status=TaskStatus.MISSED,
-                )
-                await self.telegram_client.send_message(
-                    event.chat_id,
-                    self.response_composer.reschedule_prompt(f"괜찮아요. '{task.title}'은 못 한 것으로 기록했어요. 다시 잡을까요?"),
-                    reply_markup=self.response_composer.reschedule_keyboard(task.id),
+                    feedback_type=None,
+                    lead_text=f"괜찮아요. '{task.title}'은 못 한 것으로 기록했어요. 다시 잡을까요?",
+                    chat_id=event.chat_id,
                 )
             elif action == "progress_ok":
                 task.pending_prompt_type = None
@@ -600,9 +565,8 @@ class StudyAssistantService:
                 await self._mark_task_completed(repo, task, ResponseSource.BUTTON, "done")
                 await self.telegram_client.send_message(event.chat_id, f"좋아요. '{task.title}' 완료로 기록했어요.")
             elif action == "partial":
-                task.status = TaskStatus.PARTIAL
-                task.pending_prompt_type = PendingPromptType.RESCHEDULE
-                await repo.record_task_response(
+                await self._mark_task_for_reschedule(
+                    repo,
                     task,
                     source=ResponseSource.BUTTON,
                     raw_text="partial",
@@ -610,27 +574,21 @@ class StudyAssistantService:
                     interpreted_payload={"action": action},
                     result_status=TaskStatus.PARTIAL,
                     feedback_type=FeedbackType.DID_NOT_FINISH,
-                )
-                await self.telegram_client.send_message(
-                    event.chat_id,
-                    self.response_composer.reschedule_prompt(f"'{task.title}'은 일부 완료로 기록했어요. 남은 분량을 다시 잡을까요?"),
-                    reply_markup=self.response_composer.reschedule_keyboard(task.id),
+                    lead_text=f"'{task.title}'은 일부 완료로 기록했어요. 남은 분량을 다시 잡을까요?",
+                    chat_id=event.chat_id,
                 )
             elif action == "missed":
-                task.status = TaskStatus.MISSED
-                task.pending_prompt_type = PendingPromptType.RESCHEDULE
-                await repo.record_task_response(
+                await self._mark_task_for_reschedule(
+                    repo,
                     task,
                     source=ResponseSource.BUTTON,
                     raw_text="missed",
                     interpreted_kind="mark_missed",
                     interpreted_payload={"action": action},
                     result_status=TaskStatus.MISSED,
-                )
-                await self.telegram_client.send_message(
-                    event.chat_id,
-                    self.response_composer.reschedule_prompt(f"알겠어요. '{task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?"),
-                    reply_markup=self.response_composer.reschedule_keyboard(task.id),
+                    feedback_type=None,
+                    lead_text=f"알겠어요. '{task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?",
+                    chat_id=event.chat_id,
                 )
             elif action == "reschedTonight":
                 await self._reschedule_to_tonight(repo, task, now)
@@ -639,13 +597,11 @@ class StudyAssistantService:
                 await self._reschedule_to_tomorrow(repo, task, now)
                 await self.telegram_client.send_message(event.chat_id, self.response_composer.reschedule_confirmation(task, "내일 저녁"))
             elif action == "suggest":
-                suggestions = self.decision_engine.build_reschedule_suggestions(now)
+                suggestions = self.decision_engine.time_parser.build_reschedule_suggestions(now)
                 await self.telegram_client.send_message(
                     event.chat_id,
                     self.decision_engine.suggestion_text(suggestions, task.end_at - task.start_at),
                 )
-            elif action == "freeform":
-                await self.telegram_client.send_message(event.chat_id, self.response_composer.freeform_reschedule_help())
             elif action == "cancel":
                 await self._cancel_task(repo, task, reason="User cancelled the task.")
                 await self.telegram_client.send_message(event.chat_id, f"'{task.title}' 일정은 취소로 처리했어요.")
@@ -694,9 +650,8 @@ class StudyAssistantService:
             return
 
         if interpreted.kind == "mark_partial":
-            active_task.status = TaskStatus.PARTIAL
-            active_task.pending_prompt_type = PendingPromptType.RESCHEDULE
-            await repo.record_task_response(
+            await self._mark_task_for_reschedule(
+                repo,
                 active_task,
                 source=ResponseSource.FREE_TEXT,
                 raw_text=raw_text,
@@ -704,11 +659,8 @@ class StudyAssistantService:
                 interpreted_payload=interpreted.model_dump(mode="json"),
                 result_status=TaskStatus.PARTIAL,
                 feedback_type=FeedbackType.DID_NOT_FINISH,
-            )
-            await self.telegram_client.send_message(
-                user.telegram_chat_id,
-                self.response_composer.reschedule_prompt(f"'{active_task.title}'은 일부 완료로 기록했어요. 다시 잡을까요?"),
-                reply_markup=self.response_composer.reschedule_keyboard(active_task.id),
+                lead_text=f"'{active_task.title}'은 일부 완료로 기록했어요. 다시 잡을까요?",
+                chat_id=user.telegram_chat_id,
             )
             return
 
@@ -744,26 +696,18 @@ class StudyAssistantService:
                     self.response_composer.multiple_missed_replan_summary(pending_tasks),
                 )
                 return
-                await self.telegram_client.send_message(
-                    user.telegram_chat_id,
-                    "놓친 일정들을 현재 시점 기준으로 다시 이어 붙였어요. 오늘 남은 시간에 맞춰 재정리했습니다.",
-                )
-                return
 
-            active_task.status = TaskStatus.MISSED
-            active_task.pending_prompt_type = PendingPromptType.RESCHEDULE
-            await repo.record_task_response(
+            await self._mark_task_for_reschedule(
+                repo,
                 active_task,
                 source=ResponseSource.FREE_TEXT,
                 raw_text=raw_text,
                 interpreted_kind=interpreted.kind,
                 interpreted_payload=interpreted.model_dump(mode="json"),
                 result_status=TaskStatus.MISSED,
-            )
-            await self.telegram_client.send_message(
-                user.telegram_chat_id,
-                self.response_composer.reschedule_prompt(f"알겠어요. '{active_task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?"),
-                reply_markup=self.response_composer.reschedule_keyboard(active_task.id),
+                feedback_type=None,
+                lead_text=f"알겠어요. '{active_task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?",
+                chat_id=user.telegram_chat_id,
             )
             return
 
@@ -919,6 +863,37 @@ class StudyAssistantService:
             interpreted_kind="mark_completed",
             interpreted_payload={"raw_text": raw_text},
             result_status=TaskStatus.COMPLETED,
+        )
+
+    async def _mark_task_for_reschedule(
+        self,
+        repo,
+        task,
+        *,
+        source,
+        raw_text: str,
+        interpreted_kind: str,
+        interpreted_payload: dict,
+        result_status: TaskStatus,
+        feedback_type,
+        lead_text: str,
+        chat_id: int,
+    ) -> None:
+        task.status = result_status
+        task.pending_prompt_type = PendingPromptType.RESCHEDULE
+        await repo.record_task_response(
+            task,
+            source=source,
+            raw_text=raw_text,
+            interpreted_kind=interpreted_kind,
+            interpreted_payload=interpreted_payload,
+            result_status=result_status,
+            feedback_type=feedback_type,
+        )
+        await self.telegram_client.send_message(
+            chat_id,
+            self.response_composer.reschedule_prompt(lead_text),
+            reply_markup=self.response_composer.reschedule_keyboard(task.id),
         )
 
     async def _create_manual_test_task(
