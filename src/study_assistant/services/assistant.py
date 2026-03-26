@@ -327,6 +327,22 @@ class StudyAssistantService:
                 await self.telegram_client.send_message(chat_id, self._render_start_message())
                 return
 
+            if text.strip() == "/plan":
+                await session.commit()
+                await self.telegram_client.send_message(chat_id, self._render_plan_help_message())
+                return
+
+            if text.strip() in {"/id", "/me"}:
+                await session.commit()
+                await self.telegram_client.send_message(
+                    chat_id,
+                    (
+                        f"telegram_user_id: {user.telegram_user_id}\n"
+                        f"telegram_chat_id: {user.telegram_chat_id}"
+                    ),
+                )
+                return
+
             interpreted = await self.message_interpreter.interpret(
                 text=text,
                 user=user,
@@ -790,7 +806,18 @@ class StudyAssistantService:
         return (
             "공부 일정 비서예요.\n"
             "- /plan 으로 주간 계획 안내를 볼 수 있어요.\n"
+            "- /id 로 내 텔레그램 ID를 확인할 수 있어요.\n"
             "- 시작 전 알림, 시작 확인, 종료 확인, 재배치를 도와드릴게요."
+        )
+
+    def _render_plan_help_message(self) -> str:
+        return (
+            "주간 계획 입력은 아직 API 경로가 가장 안정적이에요.\n"
+            "- 비가용 시간\n"
+            "- 공부 목표\n"
+            "- 바쁜 날\n"
+            "이 세 가지만 정리해두면 제가 API 입력 형태로 바로 맞출 수 있어요.\n"
+            "필요하면 /id 로 내 텔레그램 ID를 먼저 확인해 주세요."
         )
 
     def _render_weekly_plan_message(self, draft) -> str:
