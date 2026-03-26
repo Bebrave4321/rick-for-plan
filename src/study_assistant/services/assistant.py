@@ -24,6 +24,7 @@ from study_assistant.schemas.contracts import (
 )
 from study_assistant.services.context_assembler import ContextAssembler
 from study_assistant.services.decision_engine import DecisionEngine
+from study_assistant.services.command_handler import CommandHandler
 from study_assistant.services.input_handler import InputHandler
 from study_assistant.services.internal_events import InternalEvent
 from study_assistant.services.response_composer import ResponseComposer
@@ -51,6 +52,7 @@ class StudyAssistantService:
         response_composer: ResponseComposer | None = None,
         task_executor: TaskExecutor | None = None,
         weekly_report_service: WeeklyReportService | None = None,
+        command_handler: CommandHandler | None = None,
     ):
         self.settings = settings
         self.session_factory = session_factory
@@ -64,6 +66,11 @@ class StudyAssistantService:
         self.response_composer = response_composer or ResponseComposer()
         self.task_executor = task_executor or TaskExecutor(settings.timezone)
         self.weekly_report_service = weekly_report_service or WeeklyReportService(settings.timezone)
+        self.command_handler = command_handler or CommandHandler(
+            telegram_client=telegram_client,
+            response_composer=self.response_composer,
+            weekly_report_service=self.weekly_report_service,
+        )
 
     async def close(self) -> None:
         await self.telegram_client.close()
@@ -422,36 +429,6 @@ class StudyAssistantService:
             await session.commit()
 
     async def _handle_command(self, repo, user, chat_id: int, command: str, now: datetime) -> bool:
-        if command == "/start":
-            await self.telegram_client.send_message(chat_id, self.response_composer.start_message())
-            return True
-
-        if command == "/plan":
-            await self.telegram_client.send_message(chat_id, self.response_composer.plan_help_message())
-            return True
-
-        if command in {"/id", "/me"}:
-            await self.telegram_client.send_message(
-                chat_id,
-                (
-                    f"telegram_user_id: {user.telegram_user_id}\n"
-                    f"telegram_chat_id: {user.telegram_chat_id}"
-                ),
-            )
-            return True
-
-        if command in {"/weeklyreport", "/report"}:
-            report = await self.weekly_report_service.build_weekly_report(
-                repo,
-                user=user,
-                reference_date=now.date(),
-            )
-            await self.telegram_client.send_message(
-                chat_id,
-                self.response_composer.weekly_report(report),
-            )
-            return True
-
         if command == "/testcheckin":
             task = await self._create_manual_test_task(
                 repo,
@@ -488,7 +465,13 @@ class StudyAssistantService:
             )
             return True
 
-        return False
+        return await self.command_handler.handle(
+            repo=repo,
+            user=user,
+            chat_id=chat_id,
+            command=command,
+            now=now,
+        )
 
     async def _handle_button_action_event(self, event: InternalEvent) -> None:
         try:
