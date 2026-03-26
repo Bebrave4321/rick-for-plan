@@ -1,0 +1,8 @@
+[build]
+buildCommand = "python -m pip install -e ."
+
+[deploy]
+startCommand = "python -m uvicorn study_assistant.main:app --host 0.0.0.0 --port $PORT --app-dir src"
+healthcheckPath = "/health"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"

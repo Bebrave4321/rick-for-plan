@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env
+study_assistant.db
+pytest-cache-files-*/
+tools/ngrok/ngrok.yml
+tools/ngrok/
+tools/ngrok.zip
+*.egg-info/

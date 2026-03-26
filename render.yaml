@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: study-assistant
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -e .
+    startCommand: python -m uvicorn study_assistant.main:app --host 0.0.0.0 --port $PORT --app-dir src
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      - key: APP_ENV
+        value: production
+      - key: DEBUG
+        value: false
+      - key: DEFAULT_TIMEZONE
+        value: Asia/Seoul
+      - key: TELEGRAM_WEBHOOK_PATH
+        value: /api/telegram/webhook
+      - key: SCANNER_INTERVAL_SECONDS
+        value: "60"
+      - key: OPENAI_MODEL
+        value: gpt-5-mini
+      - key: BASE_URL
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: study-assistant-db
+          property: connectionString
+
+databases:
+  - name: study-assistant-db
+    plan: free
+    region: singapore
+    databaseName: study_assistant
