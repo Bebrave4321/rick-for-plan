@@ -13,6 +13,8 @@ class InternalEvent:
     event_type: InternalEventType
     telegram_user_id: int
     chat_id: int | None
+    task_id: str | None = None
+    prompt_kind: str | None = None
     display_name: str | None = None
     text: str | None = None
     callback_data: str | None = None

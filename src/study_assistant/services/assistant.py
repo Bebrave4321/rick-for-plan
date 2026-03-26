@@ -176,7 +176,7 @@ class StudyAssistantService:
 
     async def run_due_scan(self) -> dict:
         now = self.now()
-        sent_count = 0
+        due_events: list[InternalEvent] = []
         async with self.session_factory() as session:
             repo = AssistantRepository(session)
             tasks = await repo.list_due_tasks(now)
@@ -190,24 +190,26 @@ class StudyAssistantService:
                 duration = task.end_at - task.start_at
 
                 if task.prep_reminder_sent_at is None and now >= task.start_at - timedelta(minutes=10):
-                    await self.telegram_client.send_message(
-                        user.telegram_chat_id,
-                        self.response_composer.prep_reminder(task),
+                    due_events.append(
+                        self.input_handler.from_scheduler_trigger(
+                            telegram_user_id=user.telegram_user_id,
+                            chat_id=user.telegram_chat_id,
+                            task_id=task.id,
+                            prompt_kind="prep",
+                            occurred_at=now,
+                        )
                     )
-                    task.prep_reminder_sent_at = now
-                    sent_count += 1
 
                 if task.checkin_sent_at is None and now >= task.start_at:
-                    await self.telegram_client.send_message(
-                        user.telegram_chat_id,
-                        self.response_composer.checkin_prompt(task),
-                        reply_markup=self.response_composer.checkin_keyboard(task.id),
+                    due_events.append(
+                        self.input_handler.from_scheduler_trigger(
+                            telegram_user_id=user.telegram_user_id,
+                            chat_id=user.telegram_chat_id,
+                            task_id=task.id,
+                            prompt_kind="checkin",
+                            occurred_at=now,
+                        )
                     )
-                    task.checkin_sent_at = now
-                    task.latest_prompt_sent_at = now
-                    task.pending_prompt_type = PendingPromptType.CHECKIN
-                    task.status = TaskStatus.CHECKIN_PENDING
-                    sent_count += 1
 
                 if (
                     task.checkin_sent_at is not None
@@ -215,39 +217,41 @@ class StudyAssistantService:
                     and task.status == TaskStatus.CHECKIN_PENDING
                     and now >= task.checkin_sent_at + timedelta(minutes=10)
                 ):
-                    await self.telegram_client.send_message(
-                        user.telegram_chat_id,
-                        self.response_composer.recheck_prompt(task),
-                        reply_markup=self.response_composer.checkin_keyboard(task.id),
+                    due_events.append(
+                        self.input_handler.from_scheduler_trigger(
+                            telegram_user_id=user.telegram_user_id,
+                            chat_id=user.telegram_chat_id,
+                            task_id=task.id,
+                            prompt_kind="recheck",
+                            occurred_at=now,
+                        )
                     )
-                    task.recheck_sent_at = now
-                    task.latest_prompt_sent_at = now
-                    task.pending_prompt_type = PendingPromptType.RECHECK
-                    sent_count += 1
 
                 if duration >= timedelta(hours=1) and task.status == TaskStatus.IN_PROGRESS and self._needs_progress_check(task, now):
-                    await self.telegram_client.send_message(
-                        user.telegram_chat_id,
-                        self.response_composer.progress_prompt(task),
-                        reply_markup=self.response_composer.progress_keyboard(task.id),
+                    due_events.append(
+                        self.input_handler.from_scheduler_trigger(
+                            telegram_user_id=user.telegram_user_id,
+                            chat_id=user.telegram_chat_id,
+                            task_id=task.id,
+                            prompt_kind="progress",
+                            occurred_at=now,
+                        )
                     )
-                    task.last_progress_check_at = now
-                    task.latest_prompt_sent_at = now
-                    task.pending_prompt_type = PendingPromptType.PROGRESS
-                    sent_count += 1
 
                 if task.completion_prompt_sent_at is None and now >= task.end_at:
-                    await self.telegram_client.send_message(
-                        user.telegram_chat_id,
-                        self.response_composer.completion_prompt(task),
-                        reply_markup=self.response_composer.completion_keyboard(task.id),
+                    due_events.append(
+                        self.input_handler.from_scheduler_trigger(
+                            telegram_user_id=user.telegram_user_id,
+                            chat_id=user.telegram_chat_id,
+                            task_id=task.id,
+                            prompt_kind="completion",
+                            occurred_at=now,
+                        )
                     )
-                    task.completion_prompt_sent_at = now
-                    task.latest_prompt_sent_at = now
-                    task.pending_prompt_type = PendingPromptType.COMPLETION
-                    sent_count += 1
-
-            await session.commit()
+        sent_count = 0
+        for event in due_events:
+            if await self._handle_internal_event(event):
+                sent_count += 1
 
         return {"sent_count": sent_count, "checked_at": now.isoformat()}
 
@@ -342,13 +346,16 @@ class StudyAssistantService:
         )
         await self._handle_internal_event(event)
 
-    async def _handle_internal_event(self, event: InternalEvent) -> None:
+    async def _handle_internal_event(self, event: InternalEvent) -> bool:
         if event.event_type == "user_message":
             await self._handle_user_message_event(event)
-            return
+            return True
         if event.event_type == "button_action":
             await self._handle_button_action_event(event)
-            return
+            return True
+        if event.event_type == "scheduler_event":
+            return await self._handle_scheduler_event(event)
+        return False
 
     async def _handle_user_message_event(self, event: InternalEvent) -> None:
         now = self.now()
@@ -609,6 +616,73 @@ class StudyAssistantService:
                 await self.telegram_client.send_message(event.chat_id, "아직 지원하지 않는 버튼이에요.")
 
             await session.commit()
+
+    async def _handle_scheduler_event(self, event: InternalEvent) -> bool:
+        if event.task_id is None or event.chat_id is None or event.prompt_kind is None:
+            return False
+
+        now = event.occurred_at or self.now()
+        async with self.session_factory() as session:
+            repo = AssistantRepository(session)
+            context = await self.context_assembler.build_task_context(
+                repo,
+                telegram_user_id=event.telegram_user_id,
+                task_id=event.task_id,
+                now=now,
+            )
+            user = context.user
+            task = context.active_task
+            if user is None or task is None:
+                return False
+
+            if event.prompt_kind == "prep":
+                await self.telegram_client.send_message(
+                    event.chat_id,
+                    self.response_composer.prep_reminder(task),
+                )
+                task.prep_reminder_sent_at = now
+            elif event.prompt_kind == "checkin":
+                await self.telegram_client.send_message(
+                    event.chat_id,
+                    self.response_composer.checkin_prompt(task),
+                    reply_markup=self.response_composer.checkin_keyboard(task.id),
+                )
+                task.checkin_sent_at = now
+                task.latest_prompt_sent_at = now
+                task.pending_prompt_type = PendingPromptType.CHECKIN
+                task.status = TaskStatus.CHECKIN_PENDING
+            elif event.prompt_kind == "recheck":
+                await self.telegram_client.send_message(
+                    event.chat_id,
+                    self.response_composer.recheck_prompt(task),
+                    reply_markup=self.response_composer.checkin_keyboard(task.id),
+                )
+                task.recheck_sent_at = now
+                task.latest_prompt_sent_at = now
+                task.pending_prompt_type = PendingPromptType.RECHECK
+            elif event.prompt_kind == "progress":
+                await self.telegram_client.send_message(
+                    event.chat_id,
+                    self.response_composer.progress_prompt(task),
+                    reply_markup=self.response_composer.progress_keyboard(task.id),
+                )
+                task.last_progress_check_at = now
+                task.latest_prompt_sent_at = now
+                task.pending_prompt_type = PendingPromptType.PROGRESS
+            elif event.prompt_kind == "completion":
+                await self.telegram_client.send_message(
+                    event.chat_id,
+                    self.response_composer.completion_prompt(task),
+                    reply_markup=self.response_composer.completion_keyboard(task.id),
+                )
+                task.completion_prompt_sent_at = now
+                task.latest_prompt_sent_at = now
+                task.pending_prompt_type = PendingPromptType.COMPLETION
+            else:
+                return False
+
+            await session.commit()
+            return True
 
     async def _apply_interpreted_message(self, repo, user, active_task, today_tasks, interpreted, raw_text: str, now: datetime) -> None:
         if interpreted.kind == "weekly_plan_request":

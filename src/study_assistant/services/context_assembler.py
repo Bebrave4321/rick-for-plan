@@ -60,6 +60,21 @@ class ContextAssembler:
         task_id: str,
         now: datetime,
     ) -> AssistantContext:
+        return await self.build_task_context(
+            repo,
+            telegram_user_id=telegram_user_id,
+            task_id=task_id,
+            now=now,
+        )
+
+    async def build_task_context(
+        self,
+        repo,
+        *,
+        telegram_user_id: int,
+        task_id: str,
+        now: datetime,
+    ) -> AssistantContext:
         user = await repo.get_user_by_telegram_user_id(telegram_user_id)
         task = await repo.get_task(task_id)
         self._localize_task_datetimes(task)

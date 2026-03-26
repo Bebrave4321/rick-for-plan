@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from study_assistant.services.internal_events import InternalEvent
 
 
@@ -59,4 +61,22 @@ class InputHandler:
             chat_id=chat_id,
             callback_data=callback_data,
             callback_query_id=callback_query_id,
+        )
+
+    def from_scheduler_trigger(
+        self,
+        *,
+        telegram_user_id: int,
+        chat_id: int,
+        task_id: str,
+        prompt_kind: str,
+        occurred_at: datetime | None = None,
+    ) -> InternalEvent:
+        return InternalEvent(
+            event_type="scheduler_event",
+            telegram_user_id=telegram_user_id,
+            chat_id=chat_id,
+            task_id=task_id,
+            prompt_kind=prompt_kind,
+            occurred_at=occurred_at,
         )

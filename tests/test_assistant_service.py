@@ -440,3 +440,40 @@ async def test_weekly_report_summarizes_completion_reschedules_and_best_window()
         await engine.dispose()
         if db_path.exists():
             db_path.unlink()
+
+
+@pytest.mark.asyncio
+async def test_run_due_scan_dispatches_scheduler_event_for_checkin():
+    service, telegram_client, session_factory, engine, db_path = await build_db_service(".assistant-run-due-scan.db")
+
+    try:
+        await create_user(service, 1007)
+        now = service.now()
+
+        async with session_factory() as session:
+            user = (await session.execute(select(User).where(User.telegram_user_id == 1007))).scalar_one()
+            task = StudyTask(
+                user_id=user.id,
+                title="즉시 체크인 테스트",
+                topic="test",
+                start_at=now - timedelta(minutes=2),
+                end_at=now + timedelta(minutes=23),
+                source=TaskSource.MANUAL,
+                status=TaskStatus.PLANNED,
+            )
+            session.add(task)
+            await session.commit()
+
+        result = await service.run_due_scan()
+
+        assert result["sent_count"] >= 1
+        assert telegram_client.messages[-1]["text"].startswith("지금 '즉시 체크인 테스트'")
+
+        task = await load_single_task(session_factory)
+        assert task.status == TaskStatus.CHECKIN_PENDING
+        assert task.pending_prompt_type == PendingPromptType.CHECKIN
+        assert task.checkin_sent_at is not None
+    finally:
+        await engine.dispose()
+        if db_path.exists():
+            db_path.unlink()
