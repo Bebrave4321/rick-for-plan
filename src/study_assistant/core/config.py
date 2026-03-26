@@ -38,6 +38,14 @@ class Settings(BaseSettings):
         return ZoneInfo(self.default_timezone)
 
     @property
+    def resolved_database_url(self) -> str:
+        if self.database_url.startswith("postgresql://"):
+            return self.database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        if self.database_url.startswith("postgres://"):
+            return self.database_url.replace("postgres://", "postgresql+asyncpg://", 1)
+        return self.database_url
+
+    @property
     def telegram_webhook_url(self) -> str:
         return f"{self.base_url.rstrip('/')}{self.telegram_webhook_path}"
 
