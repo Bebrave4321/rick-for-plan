@@ -1,9 +1,14 @@
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from study_assistant.core.config import Settings
+from study_assistant.db.session import Base
+from study_assistant.models.entities import PendingPromptType, StudyTask, TaskSource, TaskStatus
 from study_assistant.services.assistant import StudyAssistantService
 
 
@@ -23,12 +28,27 @@ class DummyTask:
 class DummyClient:
     def __init__(self):
         self.webhook_calls = 0
+        self.messages = []
 
     async def close(self):
         return None
 
     async def set_webhook(self):
         self.webhook_calls += 1
+
+    async def send_message(self, chat_id, text, reply_markup=None):
+        self.messages.append(
+            {
+                "chat_id": chat_id,
+                "text": text,
+                "reply_markup": reply_markup,
+            }
+        )
+
+
+class DummyInterpreter:
+    async def interpret(self, **kwargs):
+        raise AssertionError("Interpreter should not be called for fast test commands.")
 
 
 def build_service():
@@ -44,6 +64,31 @@ def build_service():
         telegram_client=DummyClient(),
         openai_client=DummyClient(),
     )
+
+
+async def build_db_service(db_name: str):
+    db_path = Path("tests") / db_name
+    if db_path.exists():
+        db_path.unlink()
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", future=True)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    telegram_client = DummyClient()
+    service = StudyAssistantService(
+        settings=Settings(
+            database_url=f"sqlite+aiosqlite:///{db_path}",
+            default_timezone="Asia/Seoul",
+        ),
+        session_factory=session_factory,
+        planning_service=None,
+        message_interpreter=DummyInterpreter(),
+        telegram_client=telegram_client,
+        openai_client=DummyClient(),
+    )
+    return service, telegram_client, session_factory, engine, db_path
 
 
 def test_needs_progress_check_handles_naive_datetimes():
@@ -86,3 +131,68 @@ async def test_ensure_integrations_ready_registers_webhook_for_public_base_url()
     await service.ensure_integrations_ready()
 
     assert telegram_client.webhook_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_testcomplete_command_creates_manual_completion_prompt():
+    service, telegram_client, session_factory, engine, db_path = await build_db_service(".assistant-fast-complete.db")
+
+    try:
+        await service.process_text_message(
+            telegram_user_id=1001,
+            chat_id=1001,
+            display_name="LG",
+            text="/testcomplete",
+        )
+
+        async with session_factory() as session:
+            task = (await session.execute(select(StudyTask))).scalar_one()
+            assert task.source == TaskSource.MANUAL
+            assert task.status == TaskStatus.IN_PROGRESS
+            assert task.pending_prompt_type == PendingPromptType.COMPLETION
+            assert task.completion_prompt_sent_at is not None
+
+        assert telegram_client.messages[-1]["text"].startswith("빠른 테스트예요.")
+        keyboard = telegram_client.messages[-1]["reply_markup"]["inline_keyboard"]
+        assert keyboard[0][0]["callback_data"].endswith(":done")
+        assert keyboard[1][0]["callback_data"].endswith(":missed")
+    finally:
+        await engine.dispose()
+        if db_path.exists():
+            db_path.unlink()
+
+
+@pytest.mark.asyncio
+async def test_delay10_suppresses_duplicate_prep_reminder_for_immediate_reschedule():
+    service, telegram_client, session_factory, engine, db_path = await build_db_service(".assistant-delay10.db")
+
+    try:
+        await service.process_text_message(
+            telegram_user_id=1002,
+            chat_id=1002,
+            display_name="LG",
+            text="/testcheckin",
+        )
+
+        async with session_factory() as session:
+            task = (await session.execute(select(StudyTask))).scalar_one()
+            original_start = task.start_at
+            task_id = task.id
+
+        await service.process_callback_query(
+            telegram_user_id=1002,
+            chat_id=1002,
+            callback_data=f"task:{task_id}:delay10",
+        )
+
+        async with session_factory() as session:
+            task = (await session.execute(select(StudyTask))).scalar_one()
+            assert task.start_at == original_start + timedelta(minutes=10)
+            assert task.prep_reminder_sent_at is not None
+            assert task.pending_prompt_type is None
+
+        assert "10분 뒤로 옮겼어요" in telegram_client.messages[-1]["text"]
+    finally:
+        await engine.dispose()
+        if db_path.exists():
+            db_path.unlink()

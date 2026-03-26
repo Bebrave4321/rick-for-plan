@@ -9,6 +9,8 @@ from study_assistant.models.entities import (
     FeedbackType,
     PendingPromptType,
     ResponseSource,
+    StudyTask,
+    TaskSource,
     TaskStatus,
     WeeklyPlanStatus,
 )
@@ -322,17 +324,19 @@ class StudyAssistantService:
             for task in today_tasks:
                 self._localize_task_datetimes(task)
 
-            if text.strip() == "/start":
+            command = text.strip().lower()
+
+            if command == "/start":
                 await session.commit()
                 await self.telegram_client.send_message(chat_id, self._render_start_message())
                 return
 
-            if text.strip() == "/plan":
+            if command == "/plan":
                 await session.commit()
                 await self.telegram_client.send_message(chat_id, self._render_plan_help_message())
                 return
 
-            if text.strip() in {"/id", "/me"}:
+            if command in {"/id", "/me"}:
                 await session.commit()
                 await self.telegram_client.send_message(
                     chat_id,
@@ -340,6 +344,44 @@ class StudyAssistantService:
                         f"telegram_user_id: {user.telegram_user_id}\n"
                         f"telegram_chat_id: {user.telegram_chat_id}"
                     ),
+                )
+                return
+
+            if command == "/testcheckin":
+                task = await self._create_manual_test_task(
+                    repo,
+                    user=user,
+                    title="빠른 체크인 테스트",
+                    start_at=now,
+                    end_at=now + timedelta(minutes=25),
+                    status=TaskStatus.CHECKIN_PENDING,
+                    pending_prompt_type=PendingPromptType.CHECKIN,
+                    prompt_sent_at=now,
+                )
+                await session.commit()
+                await self.telegram_client.send_message(
+                    chat_id,
+                    f"빠른 테스트예요. 지금 '{task.title}' 시작했나요?",
+                    reply_markup=self._build_checkin_keyboard(task.id),
+                )
+                return
+
+            if command == "/testcomplete":
+                task = await self._create_manual_test_task(
+                    repo,
+                    user=user,
+                    title="빠른 종료 테스트",
+                    start_at=now - timedelta(minutes=25),
+                    end_at=now - timedelta(minutes=5),
+                    status=TaskStatus.IN_PROGRESS,
+                    pending_prompt_type=PendingPromptType.COMPLETION,
+                    prompt_sent_at=now,
+                )
+                await session.commit()
+                await self.telegram_client.send_message(
+                    chat_id,
+                    f"빠른 테스트예요. '{task.title}' 마무리됐어요?",
+                    reply_markup=self._build_completion_keyboard(task.id),
                 )
                 return
 
@@ -385,7 +427,7 @@ class StudyAssistantService:
                 )
                 await self.telegram_client.send_message(chat_id, f"좋아요. '{task.title}' 시작으로 기록할게요.")
             elif action == "delay10":
-                await self._shift_task(repo, task, minutes=10, reason="User requested 10 minute delay.")
+                await self._shift_task(repo, task, minutes=10, reason="User requested 10 minute delay.", reference_now=now)
                 await repo.record_task_response(
                     task,
                     source=ResponseSource.BUTTON,
@@ -574,7 +616,13 @@ class StudyAssistantService:
 
         if interpreted.kind in {"postpone_10", "postpone_custom"}:
             minutes = interpreted.reschedule_minutes or 10
-            await self._shift_task(repo, active_task, minutes=minutes, reason=f"User postponed by {minutes} minutes.")
+            await self._shift_task(
+                repo,
+                active_task,
+                minutes=minutes,
+                reason=f"User postponed by {minutes} minutes.",
+                reference_now=now,
+            )
             await repo.record_task_response(
                 active_task,
                 source=ResponseSource.FREE_TEXT,
@@ -644,18 +692,65 @@ class StudyAssistantService:
             result_status=TaskStatus.COMPLETED,
         )
 
-    async def _shift_task(self, repo, task, minutes: int, reason: str) -> None:
+    async def _create_manual_test_task(
+        self,
+        repo,
+        *,
+        user,
+        title: str,
+        start_at: datetime,
+        end_at: datetime,
+        status: TaskStatus,
+        pending_prompt_type: PendingPromptType,
+        prompt_sent_at: datetime,
+    ) -> StudyTask:
+        task = StudyTask(
+            user_id=user.id,
+            title=title,
+            topic="test",
+            notes="Created from Telegram fast-test command.",
+            start_at=start_at,
+            end_at=end_at,
+            importance=1,
+            source=TaskSource.MANUAL,
+            status=status,
+            pending_prompt_type=pending_prompt_type,
+            latest_prompt_sent_at=prompt_sent_at,
+            prep_reminder_sent_at=prompt_sent_at,
+        )
+        if pending_prompt_type == PendingPromptType.CHECKIN:
+            task.checkin_sent_at = prompt_sent_at
+        if pending_prompt_type == PendingPromptType.COMPLETION:
+            task.checkin_sent_at = start_at
+            task.completion_prompt_sent_at = prompt_sent_at
+
+        repo.session.add(task)
+        await repo.session.flush()
+        return task
+
+    async def _shift_task(
+        self,
+        repo,
+        task,
+        minutes: int,
+        reason: str,
+        reference_now: datetime | None = None,
+    ) -> None:
         old_start = task.start_at
         old_end = task.end_at
         delta = timedelta(minutes=minutes)
         task.start_at = task.start_at + delta
         task.end_at = task.end_at + delta
+        anchor_now = reference_now or self.now()
         task.status = TaskStatus.RESCHEDULED
         task.pending_prompt_type = None
         task.checkin_sent_at = None
         task.recheck_sent_at = None
         task.completion_prompt_sent_at = None
-        task.prep_reminder_sent_at = None
+        if task.start_at <= anchor_now + timedelta(minutes=10):
+            task.prep_reminder_sent_at = anchor_now
+        else:
+            task.prep_reminder_sent_at = None
         task.latest_prompt_sent_at = None
         await repo.add_change_log(
             task,
