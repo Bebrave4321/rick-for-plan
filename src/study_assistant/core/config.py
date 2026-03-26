@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from zoneinfo import ZoneInfo
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.exc import ArgumentError
+from sqlalchemy.engine.url import make_url
+
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -39,11 +45,24 @@ class Settings(BaseSettings):
 
     @property
     def resolved_database_url(self) -> str:
-        if self.database_url.startswith("postgresql://"):
-            return self.database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        if self.database_url.startswith("postgres://"):
-            return self.database_url.replace("postgres://", "postgresql+asyncpg://", 1)
-        return self.database_url
+        fallback_url = "sqlite+aiosqlite:///./study_assistant.db"
+        raw_url = (self.database_url or "").strip()
+        if not raw_url:
+            return fallback_url
+
+        if raw_url.startswith("postgresql://"):
+            candidate = raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        elif raw_url.startswith("postgres://"):
+            candidate = raw_url.replace("postgres://", "postgresql+asyncpg://", 1)
+        else:
+            candidate = raw_url
+
+        try:
+            make_url(candidate)
+        except ArgumentError:
+            logger.warning("Invalid DATABASE_URL provided; falling back to local SQLite.")
+            return fallback_url
+        return candidate
 
     @property
     def telegram_webhook_url(self) -> str:

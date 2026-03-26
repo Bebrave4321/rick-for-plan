@@ -11,3 +11,9 @@ def test_resolved_database_url_keeps_sqlite_untouched():
     settings = Settings(database_url="sqlite+aiosqlite:///./study_assistant.db")
 
     assert settings.resolved_database_url == "sqlite+aiosqlite:///./study_assistant.db"
+
+
+def test_resolved_database_url_falls_back_when_value_is_invalid():
+    settings = Settings(database_url="${{study-assistant-db.DATABASE_URL}}")
+
+    assert settings.resolved_database_url == "sqlite+aiosqlite:///./study_assistant.db"
