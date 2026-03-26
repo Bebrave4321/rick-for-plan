@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, time, timedelta
 
 from study_assistant.core.config import Settings
@@ -23,6 +24,9 @@ from study_assistant.schemas.contracts import (
 from study_assistant.services.telegram import inline_keyboard
 
 
+logger = logging.getLogger(__name__)
+
+
 class StudyAssistantService:
     def __init__(
         self,
@@ -43,6 +47,16 @@ class StudyAssistantService:
     async def close(self) -> None:
         await self.telegram_client.close()
         await self.openai_client.close()
+
+    async def ensure_integrations_ready(self) -> None:
+        if not self.settings.telegram_bot_token:
+            return
+        if self.settings.base_url.startswith("http://localhost") or self.settings.base_url.startswith("http://127.0.0.1"):
+            return
+        try:
+            await self.telegram_client.set_webhook()
+        except Exception:  # noqa: BLE001
+            logger.exception("Telegram webhook registration failed")
 
     def now(self) -> datetime:
         return datetime.now(self.settings.timezone)

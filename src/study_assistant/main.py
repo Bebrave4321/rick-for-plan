@@ -58,6 +58,7 @@ async def lifespan(app: FastAPI):
         id="history_prune",
     )
     scheduler.start()
+    await service.ensure_integrations_ready()
 
     app.state.study_assistant_service = service
     app.state.scheduler = scheduler
