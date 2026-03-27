@@ -216,7 +216,7 @@ async def test_delay10_suppresses_duplicate_prep_reminder_for_immediate_reschedu
 
 
 @pytest.mark.asyncio
-async def test_reschedule_prompt_accepts_free_text_and_confirms_exact_time():
+async def test_reschedule_prompt_accepts_future_free_text_and_confirms_exact_time():
     service, telegram_client, session_factory, engine, db_path = await build_db_service(".assistant-reschedule-text.db")
 
     try:
@@ -243,7 +243,7 @@ async def test_reschedule_prompt_accepts_free_text_and_confirms_exact_time():
             telegram_user_id=1003,
             chat_id=1003,
             display_name="LG",
-            text="오늘 저녁 6시로 일정 옮겨줄래?",
+            text="내일 저녁 6시로 일정 옮겨줄래?",
         )
 
         task = await load_single_task(session_factory)
@@ -251,6 +251,7 @@ async def test_reschedule_prompt_accepts_free_text_and_confirms_exact_time():
         assert task.pending_prompt_type is None
         assert task.start_at.hour == 18
         assert task.start_at.minute == 0
+        assert task.start_at.date() == (service.now().date() + timedelta(days=1))
 
         assert "새 시간:" in telegram_client.messages[-1]["text"]
         assert "18:00" in telegram_client.messages[-1]["text"]
