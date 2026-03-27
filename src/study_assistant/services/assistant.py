@@ -5,11 +5,7 @@ from datetime import date, datetime, time, timedelta
 
 from study_assistant.core.config import Settings
 from study_assistant.models.entities import (
-    FeedbackType,
     PendingPromptType,
-    ResponseSource,
-    StudyTask,
-    TaskSource,
     TaskStatus,
     WeeklyPlanStatus,
 )
@@ -24,6 +20,7 @@ from study_assistant.schemas.contracts import (
 )
 from study_assistant.services.context_assembler import ContextAssembler
 from study_assistant.services.decision_engine import DecisionEngine
+from study_assistant.services.button_action_handler import ButtonActionHandler
 from study_assistant.services.command_handler import CommandHandler
 from study_assistant.services.input_handler import InputHandler
 from study_assistant.services.internal_events import InternalEvent
@@ -53,6 +50,7 @@ class StudyAssistantService:
         response_composer: ResponseComposer | None = None,
         task_executor: TaskExecutor | None = None,
         text_action_handler: TextActionHandler | None = None,
+        button_action_handler: ButtonActionHandler | None = None,
         weekly_report_service: WeeklyReportService | None = None,
         command_handler: CommandHandler | None = None,
     ):
@@ -71,6 +69,13 @@ class StudyAssistantService:
             telegram_client=telegram_client,
             response_composer=self.response_composer,
             task_executor=self.task_executor,
+            decision_engine=self.decision_engine,
+        )
+        self.button_action_handler = button_action_handler or ButtonActionHandler(
+            telegram_client=telegram_client,
+            response_composer=self.response_composer,
+            task_executor=self.task_executor,
+            text_action_handler=self.text_action_handler,
             decision_engine=self.decision_engine,
         )
         self.weekly_report_service = weekly_report_service or WeeklyReportService(settings.timezone)
@@ -390,7 +395,7 @@ class StudyAssistantService:
             today_tasks = context.today_tasks
 
             command = (event.text or "").strip().lower()
-            if await self._handle_command(
+            if await self.command_handler.handle(
                 repo=repo,
                 user=user,
                 chat_id=event.chat_id,
@@ -436,57 +441,12 @@ class StudyAssistantService:
             )
             await session.commit()
 
-    async def _handle_command(self, repo, user, chat_id: int, command: str, now: datetime) -> bool:
-        if command == "/testcheckin":
-            task = await self._create_manual_test_task(
-                repo,
-                user=user,
-                title="빠른 체크인 테스트",
-                start_at=now,
-                end_at=now + timedelta(minutes=25),
-                status=TaskStatus.CHECKIN_PENDING,
-                pending_prompt_type=PendingPromptType.CHECKIN,
-                prompt_sent_at=now,
-            )
-            await self.telegram_client.send_message(
-                chat_id,
-                f"빠른 테스트예요. 지금 '{task.title}' 시작했나요?",
-                reply_markup=self.response_composer.checkin_keyboard(task.id),
-            )
-            return True
-
-        if command == "/testcomplete":
-            task = await self._create_manual_test_task(
-                repo,
-                user=user,
-                title="빠른 종료 테스트",
-                start_at=now - timedelta(minutes=25),
-                end_at=now - timedelta(minutes=5),
-                status=TaskStatus.IN_PROGRESS,
-                pending_prompt_type=PendingPromptType.COMPLETION,
-                prompt_sent_at=now,
-            )
-            await self.telegram_client.send_message(
-                chat_id,
-                f"빠른 테스트예요. '{task.title}' 마무리됐어요?",
-                reply_markup=self.response_composer.completion_keyboard(task.id),
-            )
-            return True
-
-        return await self.command_handler.handle(
-            repo=repo,
-            user=user,
-            chat_id=chat_id,
-            command=command,
-            now=now,
-        )
-
     async def _handle_button_action_event(self, event: InternalEvent) -> None:
-        try:
-            _, task_id, action = (event.callback_data or "").split(":", 2)
-        except ValueError:
+        parsed = self.button_action_handler.parse_callback_data(event.callback_data)
+        if parsed is None:
             await self.telegram_client.send_message(event.chat_id, "버튼 정보를 이해하지 못했어요.")
             return
+        task_id, action = parsed
 
         async with self.session_factory() as session:
             repo = AssistantRepository(session)
@@ -502,121 +462,14 @@ class StudyAssistantService:
                 await self.telegram_client.send_message(event.chat_id, "대상 일정을 찾지 못했어요.")
                 return
 
-            now = context.now
-            if action == "start":
-                self.task_executor.mark_task_started(task)
-                await repo.record_task_response(
-                    task,
-                    source=ResponseSource.BUTTON,
-                    raw_text="started",
-                    interpreted_kind="mark_started",
-                    interpreted_payload={"action": action},
-                    result_status=TaskStatus.IN_PROGRESS,
-                )
-                await self.telegram_client.send_message(event.chat_id, f"좋아요. '{task.title}' 시작으로 기록할게요.")
-            elif action == "delay10":
-                await self.text_action_handler.shift_task(
-                    repo,
-                    task,
-                    minutes=10,
-                    reason="User requested 10 minute delay.",
-                    reference_now=now,
-                )
-                await repo.record_task_response(
-                    task,
-                    source=ResponseSource.BUTTON,
-                    raw_text="delay10",
-                    interpreted_kind="postpone_10",
-                    interpreted_payload={"action": action},
-                    result_status=TaskStatus.RESCHEDULED,
-                )
-                await self.telegram_client.send_message(event.chat_id, f"'{task.title}' 일정을 10분 뒤로 옮겼어요.")
-            elif action == "skip":
-                await self.text_action_handler.mark_task_for_reschedule(
-                    repo,
-                    task,
-                    source=ResponseSource.BUTTON,
-                    raw_text="skip",
-                    interpreted_kind="mark_missed",
-                    interpreted_payload={"action": action},
-                    result_status=TaskStatus.MISSED,
-                    feedback_type=None,
-                    lead_text=f"괜찮아요. '{task.title}'은 못 한 것으로 기록했어요. 다시 잡을까요?",
-                    chat_id=event.chat_id,
-                )
-            elif action == "progress_ok":
-                task.pending_prompt_type = None
-                await repo.record_task_response(
-                    task,
-                    source=ResponseSource.BUTTON,
-                    raw_text="progress_ok",
-                    interpreted_kind="progress_ok",
-                    interpreted_payload={"action": action},
-                )
-                await self.telegram_client.send_message(event.chat_id, "좋아요. 그대로 이어가면 돼요.")
-            elif action == "progress_help":
-                task.pending_prompt_type = None
-                await repo.record_task_response(
-                    task,
-                    source=ResponseSource.BUTTON,
-                    raw_text="progress_help",
-                    interpreted_kind="progress_help",
-                    interpreted_payload={"action": action},
-                )
-                await self.telegram_client.send_message(event.chat_id, "괜찮아요. 끝난 뒤 남은 분량만 알려주면 다시 정리할게요.")
-            elif action == "done":
-                await self.text_action_handler.mark_task_completed(
-                    repo,
-                    task,
-                    source=ResponseSource.BUTTON,
-                    raw_text="done",
-                    completed_at=now,
-                )
-                await self.telegram_client.send_message(event.chat_id, f"좋아요. '{task.title}' 완료로 기록했어요.")
-            elif action == "partial":
-                await self.text_action_handler.mark_task_for_reschedule(
-                    repo,
-                    task,
-                    source=ResponseSource.BUTTON,
-                    raw_text="partial",
-                    interpreted_kind="mark_partial",
-                    interpreted_payload={"action": action},
-                    result_status=TaskStatus.PARTIAL,
-                    feedback_type=FeedbackType.DID_NOT_FINISH,
-                    lead_text=f"'{task.title}'은 일부 완료로 기록했어요. 남은 분량을 다시 잡을까요?",
-                    chat_id=event.chat_id,
-                )
-            elif action == "missed":
-                await self.text_action_handler.mark_task_for_reschedule(
-                    repo,
-                    task,
-                    source=ResponseSource.BUTTON,
-                    raw_text="missed",
-                    interpreted_kind="mark_missed",
-                    interpreted_payload={"action": action},
-                    result_status=TaskStatus.MISSED,
-                    feedback_type=None,
-                    lead_text=f"알겠어요. '{task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?",
-                    chat_id=event.chat_id,
-                )
-            elif action == "reschedTonight":
-                await self.text_action_handler.reschedule_to_tonight(repo, task, now=now)
-                await self.telegram_client.send_message(event.chat_id, self.response_composer.reschedule_confirmation(task, "오늘 저녁"))
-            elif action == "reschedTomorrow":
-                await self.text_action_handler.reschedule_to_tomorrow(repo, task, now=now)
-                await self.telegram_client.send_message(event.chat_id, self.response_composer.reschedule_confirmation(task, "내일 저녁"))
-            elif action == "suggest":
-                suggestions = self.decision_engine.build_reschedule_suggestions(now)
-                await self.telegram_client.send_message(
-                    event.chat_id,
-                    self.decision_engine.suggestion_text(suggestions, task.end_at - task.start_at),
-                )
-            elif action == "cancel":
-                await self.text_action_handler.cancel_task(repo, task, reason="User cancelled the task.")
-                await self.telegram_client.send_message(event.chat_id, f"'{task.title}' 일정은 취소로 처리했어요.")
-            else:
-                await self.telegram_client.send_message(event.chat_id, "아직 지원하지 않는 버튼이에요.")
-
+            await self.button_action_handler.handle(
+                repo=repo,
+                user=user,
+                task=task,
+                action=action,
+                chat_id=event.chat_id,
+                now=context.now,
+            )
             await session.commit()
 
     async def _handle_scheduler_event(self, event: InternalEvent) -> bool:
@@ -648,42 +501,6 @@ class StudyAssistantService:
 
             await session.commit()
             return True
-
-    async def _create_manual_test_task(
-        self,
-        repo,
-        *,
-        user,
-        title: str,
-        start_at: datetime,
-        end_at: datetime,
-        status: TaskStatus,
-        pending_prompt_type: PendingPromptType,
-        prompt_sent_at: datetime,
-    ) -> StudyTask:
-        task = StudyTask(
-            user_id=user.id,
-            title=title,
-            topic="test",
-            notes="Created from Telegram fast-test command.",
-            start_at=start_at,
-            end_at=end_at,
-            importance=1,
-            source=TaskSource.MANUAL,
-            status=status,
-            pending_prompt_type=pending_prompt_type,
-            latest_prompt_sent_at=prompt_sent_at,
-            prep_reminder_sent_at=prompt_sent_at,
-        )
-        if pending_prompt_type == PendingPromptType.CHECKIN:
-            task.checkin_sent_at = prompt_sent_at
-        if pending_prompt_type == PendingPromptType.COMPLETION:
-            task.checkin_sent_at = start_at
-            task.completion_prompt_sent_at = prompt_sent_at
-
-        repo.session.add(task)
-        await repo.session.flush()
-        return task
 
     def _needs_progress_check(self, task, now: datetime) -> bool:
         self._localize_task_datetimes(task)
