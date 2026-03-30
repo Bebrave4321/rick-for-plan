@@ -297,6 +297,39 @@ async def test_reschedule_prompt_clarifies_ambiguous_free_text_once():
 
 
 @pytest.mark.asyncio
+async def test_direct_free_text_reschedule_moves_active_task_to_specific_time():
+    service, telegram_client, session_factory, engine, db_path = await build_db_service(".assistant-direct-reschedule.db")
+
+    try:
+        await service.process_text_message(
+            telegram_user_id=1009,
+            chat_id=1009,
+            display_name="LG",
+            text="/testcheckin",
+        )
+
+        await service.process_text_message(
+            telegram_user_id=1009,
+            chat_id=1009,
+            display_name="LG",
+            text="내일 저녁 6시로 옮겨줘",
+        )
+
+        task = await load_single_task(session_factory)
+        assert task.status == TaskStatus.RESCHEDULED
+        assert task.pending_prompt_type is None
+        assert task.start_at.hour == 18
+        assert task.start_at.minute == 0
+        assert task.start_at.date() == (service.now().date() + timedelta(days=1))
+
+        assert "18:00" in telegram_client.messages[-1]["text"]
+    finally:
+        await engine.dispose()
+        if db_path.exists():
+            db_path.unlink()
+
+
+@pytest.mark.asyncio
 async def test_multiple_missed_message_replans_only_matched_tasks():
     service, telegram_client, session_factory, engine, db_path = await build_db_service(".assistant-multi-missed.db")
 

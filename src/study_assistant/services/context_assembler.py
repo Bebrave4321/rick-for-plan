@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, time, timedelta
 
+from study_assistant.repositories.assistant_repository import FINAL_TASK_STATUSES
 from study_assistant.schemas.contracts import CreateUserRequest
 
 
@@ -46,6 +47,7 @@ class ContextAssembler:
         self._localize_task_datetimes(active_task)
         for task in today_tasks:
             self._localize_task_datetimes(task)
+        today_tasks = await self._merge_recent_overdue_tasks(repo, user_id=user.id, now=now, today_tasks=today_tasks)
 
         return AssistantContext(
             now=now,
@@ -97,6 +99,26 @@ class ContextAssembler:
             conversation_summary=conversation_summary,
             recent_dialogue=recent_dialogue,
         )
+
+    async def _merge_recent_overdue_tasks(self, repo, *, user_id: str, now: datetime, today_tasks: list[object]) -> list[object]:
+        day_start = datetime.combine(now.date(), time.min, tzinfo=self.timezone)
+        recent_window_start = day_start - timedelta(hours=6)
+        carryover_tasks = await repo.list_tasks_between(
+            user_id,
+            start_at=recent_window_start,
+            end_at=day_start,
+        )
+
+        merged_by_id = {task.id: task for task in today_tasks}
+        for task in carryover_tasks:
+            self._localize_task_datetimes(task)
+            if task.status in FINAL_TASK_STATUSES:
+                continue
+            if task.end_at > now:
+                continue
+            merged_by_id.setdefault(task.id, task)
+
+        return sorted(merged_by_id.values(), key=lambda task: task.start_at)
 
     def _localize_task_datetimes(self, task) -> None:
         if task is None:

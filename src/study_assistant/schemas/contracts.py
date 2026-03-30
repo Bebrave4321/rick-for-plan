@@ -113,6 +113,7 @@ IntentKind = Literal[
     "mark_completed",
     "mark_partial",
     "mark_missed",
+    "reschedule_specific_time",
     "reschedule_tonight",
     "reschedule_tomorrow",
     "postpone_10",

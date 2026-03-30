@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 from study_assistant.schemas.contracts import InterpretedMessage
@@ -38,6 +39,7 @@ class MessageInterpreterService:
 
     def _rule_based_interpretation(self, text: str, active_task, today_tasks, now: datetime) -> InterpretedMessage:
         normalized = self._normalize(text)
+        matched_titles = self._extract_mentioned_task_titles(normalized, today_tasks)
 
         if normalized in {"/plan", "주간계획", "이번주계획"}:
             return InterpretedMessage(
@@ -45,8 +47,6 @@ class MessageInterpreterService:
                 target_scope="none",
                 summary="Weekly planning requested.",
                 confidence=1.0,
-                target_task_ids=[],
-                mentioned_task_titles=[],
             )
 
         if "이번주" in normalized and any(keyword in normalized for keyword in ["목표", "마감", "시험", "계획"]):
@@ -55,104 +55,101 @@ class MessageInterpreterService:
                 target_scope="none",
                 summary="Likely weekly planning details.",
                 confidence=0.7,
-                target_task_ids=[],
-                mentioned_task_titles=[],
             )
 
         if "오늘" in normalized and any(
-            keyword in normalized for keyword in ["정리", "재배치", "다시", "망했", "쉬고싶어", "안하겠어", "그냥쉬"]
+            keyword in normalized for keyword in ["정리", "재배치", "다시", "망했", "귀찮", "못하겠", "그냥"]
         ):
             return InterpretedMessage(
                 kind="replan_today",
                 target_scope="today",
                 summary="User wants to reorganize today's remaining tasks.",
                 confidence=0.95,
-                target_task_ids=[],
-                mentioned_task_titles=[],
+            )
+
+        if self._looks_like_specific_reschedule(normalized):
+            return InterpretedMessage(
+                kind="reschedule_specific_time",
+                target_scope="active_task" if active_task or matched_titles else "none",
+                summary="Reschedule current task to a specific requested time.",
+                confidence=0.9,
+                mentioned_task_titles=matched_titles,
             )
 
         if any(keyword in normalized for keyword in ["오늘저녁", "오늘밤"]):
             return InterpretedMessage(
                 kind="reschedule_tonight",
-                target_scope="active_task" if active_task else "none",
+                target_scope="active_task" if active_task or matched_titles else "none",
                 summary="Reschedule to tonight.",
                 confidence=0.97,
-                target_task_ids=[],
-                mentioned_task_titles=[],
+                mentioned_task_titles=matched_titles,
             )
 
         if any(keyword in normalized for keyword in ["내일저녁", "내일밤"]):
             return InterpretedMessage(
                 kind="reschedule_tomorrow",
-                target_scope="active_task" if active_task else "none",
+                target_scope="active_task" if active_task or matched_titles else "none",
                 summary="Reschedule to tomorrow evening.",
                 confidence=0.97,
-                target_task_ids=[],
-                mentioned_task_titles=[],
+                mentioned_task_titles=matched_titles,
             )
 
-        if any(keyword in normalized for keyword in ["완료", "끝냈", "끝남", "다했", "다함"]):
+        if any(keyword in normalized for keyword in ["완료", "끝냈", "끝남", "해냈", "다함"]):
             return InterpretedMessage(
                 kind="mark_completed",
-                target_scope="active_task" if active_task else "none",
+                target_scope="active_task" if active_task or matched_titles else "none",
                 summary="Task completed.",
                 confidence=0.95,
-                target_task_ids=[],
-                mentioned_task_titles=[],
+                mentioned_task_titles=matched_titles,
             )
 
-        if any(keyword in normalized for keyword in ["못했", "못함", "못했네", "못하겠", "못할것같"]):
-            scope = "multiple" if self._mentions_multiple(normalized, today_tasks) else "active_task"
+        if any(keyword in normalized for keyword in ["못했", "못함", "못했어", "못하겠", "못할것같"]):
+            scope = "multiple" if self._mentions_multiple(normalized, matched_titles) else "active_task"
             return InterpretedMessage(
                 kind="mark_missed",
-                target_scope=scope if today_tasks else "none",
+                target_scope=scope if (today_tasks or active_task) else "none",
                 summary="Task missed.",
                 confidence=0.94,
-                target_task_ids=[],
-                mentioned_task_titles=[],
+                mentioned_task_titles=matched_titles,
             )
 
-        if any(keyword in normalized for keyword in ["일부", "조금", "반만", "조금했", "덜했"]):
+        if any(keyword in normalized for keyword in ["일부", "조금", "반만", "조금만", "덜했"]):
             return InterpretedMessage(
                 kind="mark_partial",
-                target_scope="active_task" if active_task else "none",
+                target_scope="active_task" if active_task or matched_titles else "none",
                 summary="Task partially completed.",
                 confidence=0.92,
                 feedback_type="did_not_finish",
-                target_task_ids=[],
-                mentioned_task_titles=[],
+                mentioned_task_titles=matched_titles,
             )
 
         if any(keyword in normalized for keyword in ["취소", "그만", "안할래"]):
             return InterpretedMessage(
                 kind="cancel_task",
-                target_scope="active_task" if active_task else "none",
+                target_scope="active_task" if active_task or matched_titles else "none",
                 summary="Cancel current task.",
                 confidence=0.9,
-                target_task_ids=[],
-                mentioned_task_titles=[],
+                mentioned_task_titles=matched_titles,
             )
 
         if "10분" in normalized and any(keyword in normalized for keyword in ["미뤄", "늦춰", "밀어"]):
             return InterpretedMessage(
                 kind="postpone_10",
-                target_scope="active_task" if active_task else "none",
+                target_scope="active_task" if active_task or matched_titles else "none",
                 summary="Delay by 10 minutes.",
                 confidence=0.9,
                 reschedule_minutes=10,
-                target_task_ids=[],
-                mentioned_task_titles=[],
+                mentioned_task_titles=matched_titles,
             )
 
         if any(keyword in normalized for keyword in ["미뤄", "늦춰", "밀어"]):
             return InterpretedMessage(
                 kind="postpone_custom",
-                target_scope="active_task" if active_task else "none",
+                target_scope="active_task" if active_task or matched_titles else "none",
                 summary="Reschedule current task.",
                 confidence=0.65,
                 reschedule_minutes=30,
-                target_task_ids=[],
-                mentioned_task_titles=[],
+                mentioned_task_titles=matched_titles,
             )
 
         if active_task and active_task.end_at < now:
@@ -161,8 +158,6 @@ class MessageInterpreterService:
                 target_scope="active_task",
                 summary="General update for the latest active task.",
                 confidence=0.35,
-                target_task_ids=[],
-                mentioned_task_titles=[],
             )
 
         return InterpretedMessage(
@@ -170,23 +165,42 @@ class MessageInterpreterService:
             target_scope="none",
             summary="No reliable interpretation.",
             confidence=0.1,
-            target_task_ids=[],
-            mentioned_task_titles=[],
         )
 
-    def _mentions_multiple(self, normalized: str, today_tasks) -> bool:
-        if any(keyword in normalized for keyword in ["둘다", "둘", "전부", "모두", "다못"]):
+    def _looks_like_specific_reschedule(self, normalized: str) -> bool:
+        move_keywords = ["옮겨", "바꿔", "바꾸", "미뤄", "미루", "넘겨", "넘기"]
+        time_keywords = ["오늘", "내일", "저녁", "오전", "오후", "밤", "분뒤", "시간뒤"]
+        has_move = any(keyword in normalized for keyword in move_keywords)
+        has_time = bool(re.search(r"\d{1,2}시", normalized)) or any(keyword in normalized for keyword in time_keywords)
+        return has_move and has_time
+
+    def _mentions_multiple(self, normalized: str, matched_titles: list[str]) -> bool:
+        if len(matched_titles) >= 2:
             return True
 
-        matched_titles = 0
+        return any(
+            keyword in normalized
+            for keyword in ["둘다", "둘다못", "둘다못했", "모두", "전부", "전체", "다못했", "다못했네"]
+        )
+
+    def _extract_mentioned_task_titles(self, normalized: str, today_tasks) -> list[str]:
+        matched_titles: list[str] = []
+        seen_normalized_titles: set[str] = set()
+
         for task in today_tasks:
-            task_tokens = [
-                self._normalize(getattr(task, "title", "")),
-                self._normalize(getattr(task, "topic", "") or ""),
-            ]
-            if any(token and token in normalized for token in task_tokens):
-                matched_titles += 1
-        return matched_titles >= 2
+            title = getattr(task, "title", "") or ""
+            topic = getattr(task, "topic", "") or ""
+            normalized_title = self._normalize(title)
+            normalized_topic = self._normalize(topic)
+            if not normalized_title:
+                continue
+
+            if normalized_title in normalized or (normalized_topic and normalized_topic in normalized):
+                if normalized_title not in seen_normalized_titles:
+                    matched_titles.append(title)
+                    seen_normalized_titles.add(normalized_title)
+
+        return matched_titles
 
     def _normalize(self, text: str) -> str:
         return "".join(ch for ch in text.strip().lower() if not ch.isspace())

@@ -18,6 +18,7 @@ class TextActionHandler:
             "mark_completed",
             "mark_partial",
             "mark_missed",
+            "reschedule_specific_time",
             "reschedule_tonight",
             "reschedule_tomorrow",
             "postpone_10",
@@ -74,6 +75,7 @@ class TextActionHandler:
             "mark_completed": self._handle_completed_text_action,
             "mark_partial": self._handle_partial_text_action,
             "mark_missed": self._handle_missed_text_action,
+            "reschedule_specific_time": self._handle_specific_reschedule_text_action,
             "reschedule_tonight": self._handle_tonight_reschedule_text_action,
             "reschedule_tomorrow": self._handle_tomorrow_reschedule_text_action,
             "postpone_10": self._handle_postpone_text_action,
@@ -393,6 +395,78 @@ class TextActionHandler:
             lead_text=f"알겠어요. '{active_task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?",
             chat_id=user.telegram_chat_id,
             daily_conversation=daily_conversation,
+            now=now,
+        )
+
+    async def _handle_specific_reschedule_text_action(
+        self,
+        *,
+        repo,
+        user,
+        active_task,
+        interpreted,
+        raw_text: str,
+        now: datetime,
+        daily_conversation=None,
+        **kwargs,
+    ) -> None:
+        decision = self.decision_engine.decide_reschedule(raw_text, now)
+
+        if decision.decision_type == "clarify":
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=user.telegram_chat_id,
+                text=decision.clarification_message or self.response_composer.freeform_reschedule_help(),
+                now=now,
+            )
+            return
+
+        if decision.decision_type == "suggest":
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=user.telegram_chat_id,
+                text=self.decision_engine.suggestion_text(decision.suggestions, active_task.end_at - active_task.start_at),
+                now=now,
+            )
+            return
+
+        if decision.decision_type != "reschedule" or decision.parsed_time is None:
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=user.telegram_chat_id,
+                text=self.response_composer.freeform_reschedule_help(),
+                now=now,
+            )
+            return
+
+        await self.reschedule_to_datetime(
+            repo,
+            active_task,
+            new_start_at=decision.parsed_time.start_at,
+            reason=f"Rescheduled from direct free-text request: {raw_text}",
+            reference_now=now,
+        )
+        await repo.record_task_response(
+            active_task,
+            source=ResponseSource.FREE_TEXT,
+            raw_text=raw_text,
+            interpreted_kind=interpreted.kind,
+            interpreted_payload={
+                **interpreted.model_dump(mode="json"),
+                "decision_type": decision.decision_type,
+                "label": decision.parsed_time.label,
+                "start_at": decision.parsed_time.start_at.isoformat(),
+            },
+            result_status=TaskStatus.RESCHEDULED,
+        )
+        await self._send_and_log(
+            repo,
+            daily_conversation=daily_conversation,
+            chat_id=user.telegram_chat_id,
+            text=self.response_composer.precise_reschedule_confirmation(active_task),
             now=now,
         )
 
