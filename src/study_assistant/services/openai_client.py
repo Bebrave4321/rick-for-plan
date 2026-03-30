@@ -90,6 +90,7 @@ class OpenAIAssistantClient:
 
         prompt = {
             "current_date": now.date().isoformat(),
+            "current_time": now.isoformat(),
             "user_timezone": user.timezone,
             "message": text,
             "active_task": self._serialize_task(active_task),
@@ -107,10 +108,19 @@ class OpenAIAssistantClient:
                         "content": (
                             "You interpret short Telegram messages for a study assistant. "
                             "Return the most actionable intent, favoring concise and practical interpretations. "
-                            "If the user refers to one or more specific tasks, include their IDs in target_task_ids "
-                            "and optionally their titles in mentioned_task_titles. "
+                            "Use conversation_summary and recent_dialogue to resolve follow-up phrasing and references like "
+                            "'그거', '이것도', or short reschedule replies. "
+                            "If the user is replying to an active task or an unfinished prompt, prefer that task unless the "
+                            "message clearly points to another task. "
+                            "If the user refers to one or more specific tasks, include their IDs in target_task_ids and "
+                            "optionally their titles in mentioned_task_titles. "
+                            "If the user mentions multiple tasks or phrases like '둘 다', '모두', or '전부', prefer "
+                            "target_scope='multiple' and include every matched target_task_id. "
+                            "If the user gives a concrete time like '오늘 6시', '내일 저녁 8시', or '30분 뒤', prefer a "
+                            "directly actionable reschedule intent instead of unknown. "
                             "If the request is too ambiguous to act on safely, set kind to unknown or a low-confidence "
-                            "intent and provide a short clarification_message that asks only one follow-up question."
+                            "intent and provide a short clarification_message that asks only one follow-up question. "
+                            "Do not invent tasks that are missing from active_task and today_tasks."
                         ),
                     },
                     {

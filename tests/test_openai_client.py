@@ -114,4 +114,9 @@ async def test_interpret_message_includes_recent_dialogue_context():
     assert prompt["conversation_summary"] == "User prefers practical replies."
     assert len(prompt["recent_dialogue"]) == 2
     assert prompt["current_date"] == "2026-03-27"
+    assert prompt["current_time"] == "2026-03-27T18:00:00"
+    developer_prompt = call["input"][0]["content"]
+    assert "conversation_summary and recent_dialogue" in developer_prompt
+    assert "target_scope='multiple'" in developer_prompt
+    assert "오늘 6시" in developer_prompt
     assert conversation.last_response_id == "resp_test"
