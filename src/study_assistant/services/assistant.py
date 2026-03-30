@@ -4,10 +4,7 @@ import logging
 from datetime import date, datetime, time, timedelta
 
 from study_assistant.core.config import Settings
-from study_assistant.models.entities import (
-    TaskStatus,
-    WeeklyPlanStatus,
-)
+from study_assistant.models.entities import TaskStatus, WeeklyPlanStatus
 from study_assistant.repositories.assistant_repository import AssistantRepository
 from study_assistant.schemas.contracts import (
     CreateUserRequest,
@@ -17,11 +14,11 @@ from study_assistant.schemas.contracts import (
     TaskView,
     UserSummary,
 )
-from study_assistant.services.context_assembler import ContextAssembler
-from study_assistant.services.decision_engine import DecisionEngine
 from study_assistant.services.assistant_brain import AssistantBrain
 from study_assistant.services.button_action_handler import ButtonActionHandler
 from study_assistant.services.command_handler import CommandHandler
+from study_assistant.services.context_assembler import ContextAssembler
+from study_assistant.services.decision_engine import DecisionEngine
 from study_assistant.services.input_handler import InputHandler
 from study_assistant.services.internal_events import InternalEvent
 from study_assistant.services.response_composer import ResponseComposer
@@ -285,6 +282,7 @@ class StudyAssistantService:
                             occurred_at=now,
                         )
                     )
+
         sent_count = 0
         for event in due_events:
             if await self._handle_internal_event(event):
@@ -305,10 +303,7 @@ class StudyAssistantService:
                 yesterday_tasks = await repo.list_tasks_for_day(user.id, today - timedelta(days=1), self.settings.timezone)
                 today_tasks = await repo.list_tasks_for_day(user.id, today, self.settings.timezone)
                 summary_text = self.response_composer.daily_summary(yesterday_tasks, today_tasks)
-                await self.telegram_client.send_message(
-                    user.telegram_chat_id,
-                    summary_text,
-                )
+                await self.telegram_client.send_message(user.telegram_chat_id, summary_text)
                 user.last_daily_summary_sent_for = today
                 conversation = await repo.get_or_create_daily_conversation(
                     user.id,
@@ -335,10 +330,7 @@ class StudyAssistantService:
                 if user.last_weekly_prompt_sent_for == today:
                     continue
                 planning_prompt = "이번 주 비가용 시간과 공부 목표를 보내주세요. /plan 을 보내면 입력 형식을 안내할게요."
-                await self.telegram_client.send_message(
-                    user.telegram_chat_id,
-                    planning_prompt,
-                )
+                await self.telegram_client.send_message(user.telegram_chat_id, planning_prompt)
                 user.last_weekly_prompt_sent_for = today
                 conversation = await repo.get_or_create_daily_conversation(user.id, today)
                 await repo.append_conversation_turn(
@@ -415,91 +407,6 @@ class StudyAssistantService:
             repo = AssistantRepository(session)
             await self.user_message_handler.handle(repo=repo, event=event, now=now)
             await session.commit()
-            return
-            context = await self.context_assembler.build_message_context(
-                repo,
-                telegram_user_id=event.telegram_user_id,
-                chat_id=event.chat_id,
-                display_name=event.display_name,
-                default_timezone=self.settings.default_timezone,
-                now=now,
-            )
-            user = context.user
-            daily_conversation = context.daily_conversation
-            active_task = context.active_task
-            today_tasks = context.today_tasks
-
-            command = (event.text or "").strip().lower()
-            await repo.append_conversation_turn(
-                daily_conversation,
-                role="user",
-                text=event.text or "",
-                occurred_at=now,
-            )
-            if await self.command_handler.handle(
-                repo=repo,
-                user=user,
-                daily_conversation=daily_conversation,
-                chat_id=event.chat_id,
-                command=command,
-                now=now,
-            ):
-                await session.commit()
-                return
-
-            if (
-                active_task is not None
-                and active_task.pending_prompt_type == PendingPromptType.RESCHEDULE
-                and not command.startswith("/")
-            ):
-                handled = await self.text_action_handler.handle_reschedule_followup(
-                    repo=repo,
-                    user=user,
-                    task=active_task,
-                    raw_text=event.text or "",
-                    now=now,
-                    daily_conversation=daily_conversation,
-                )
-                if handled:
-                    await session.commit()
-                    return
-
-            brain_result = await self.assistant_brain.interpret_message(
-                text=event.text or "",
-                user=user,
-                daily_conversation=daily_conversation,
-                active_task=active_task,
-                today_tasks=today_tasks,
-                conversation_summary=context.conversation_summary,
-                recent_dialogue=context.recent_dialogue,
-                now=now,
-            )
-
-            if brain_result.needs_clarification and not brain_result.actions:
-                clarification_text = brain_result.clarification_message or (
-                    "원하는 작업을 조금만 더 구체적으로 말해줄래요?"
-                )
-                await self.telegram_client.send_message(event.chat_id, clarification_text)
-                await repo.append_conversation_turn(
-                    daily_conversation,
-                    role="assistant",
-                    text=clarification_text,
-                    occurred_at=now,
-                )
-                await session.commit()
-                return
-
-            await self.text_action_handler.apply_interpreted_message(
-                repo=repo,
-                user=user,
-                active_task=active_task,
-                today_tasks=today_tasks,
-                interpreted=brain_result,
-                raw_text=event.text or "",
-                now=now,
-                daily_conversation=daily_conversation,
-            )
-            await session.commit()
 
     async def _handle_button_action_event(self, event: InternalEvent) -> None:
         parsed = self.button_action_handler.parse_callback_data(event.callback_data)
@@ -544,35 +451,6 @@ class StudyAssistantService:
             if handled:
                 await session.commit()
             return handled
-            context = await self.context_assembler.build_task_context(
-                repo,
-                telegram_user_id=event.telegram_user_id,
-                task_id=event.task_id,
-                now=now,
-            )
-            user = context.user
-            task = context.active_task
-            if user is None or task is None:
-                return False
-
-            if not self.task_executor.apply_due_prompt_state(task, prompt_kind=event.prompt_kind, occurred_at=now):
-                return False
-
-            prompt_text = self.response_composer.prompt_text(task, event.prompt_kind)
-            await self.telegram_client.send_message(
-                event.chat_id,
-                prompt_text,
-                reply_markup=self.response_composer.prompt_keyboard(task.id, event.prompt_kind),
-            )
-            await repo.append_conversation_turn(
-                context.daily_conversation,
-                role="assistant",
-                text=prompt_text,
-                occurred_at=now,
-            )
-
-            await session.commit()
-            return True
 
     def _needs_progress_check(self, task, now: datetime) -> bool:
         self._localize_task_datetimes(task)
@@ -586,6 +464,9 @@ class StudyAssistantService:
         return current_week_start - timedelta(weeks=weeks_to_keep)
 
     def _localize_task_datetimes(self, task) -> None:
+        if task is None:
+            return
+
         datetime_fields = [
             "start_at",
             "end_at",
