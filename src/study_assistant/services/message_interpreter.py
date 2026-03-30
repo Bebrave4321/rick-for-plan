@@ -45,6 +45,8 @@ class MessageInterpreterService:
                 target_scope="none",
                 summary="Weekly planning requested.",
                 confidence=1.0,
+                target_task_ids=[],
+                mentioned_task_titles=[],
             )
 
         if "이번주" in normalized and any(keyword in normalized for keyword in ["목표", "마감", "시험", "계획"]):
@@ -53,6 +55,8 @@ class MessageInterpreterService:
                 target_scope="none",
                 summary="Likely weekly planning details.",
                 confidence=0.7,
+                target_task_ids=[],
+                mentioned_task_titles=[],
             )
 
         if "오늘" in normalized and any(
@@ -63,6 +67,8 @@ class MessageInterpreterService:
                 target_scope="today",
                 summary="User wants to reorganize today's remaining tasks.",
                 confidence=0.95,
+                target_task_ids=[],
+                mentioned_task_titles=[],
             )
 
         if any(keyword in normalized for keyword in ["오늘저녁", "오늘밤"]):
@@ -71,6 +77,8 @@ class MessageInterpreterService:
                 target_scope="active_task" if active_task else "none",
                 summary="Reschedule to tonight.",
                 confidence=0.97,
+                target_task_ids=[],
+                mentioned_task_titles=[],
             )
 
         if any(keyword in normalized for keyword in ["내일저녁", "내일밤"]):
@@ -79,6 +87,8 @@ class MessageInterpreterService:
                 target_scope="active_task" if active_task else "none",
                 summary="Reschedule to tomorrow evening.",
                 confidence=0.97,
+                target_task_ids=[],
+                mentioned_task_titles=[],
             )
 
         if any(keyword in normalized for keyword in ["완료", "끝냈", "끝남", "다했", "다함"]):
@@ -87,6 +97,8 @@ class MessageInterpreterService:
                 target_scope="active_task" if active_task else "none",
                 summary="Task completed.",
                 confidence=0.95,
+                target_task_ids=[],
+                mentioned_task_titles=[],
             )
 
         if any(keyword in normalized for keyword in ["못했", "못함", "못했네", "못하겠", "못할것같"]):
@@ -96,6 +108,8 @@ class MessageInterpreterService:
                 target_scope=scope if today_tasks else "none",
                 summary="Task missed.",
                 confidence=0.94,
+                target_task_ids=[],
+                mentioned_task_titles=[],
             )
 
         if any(keyword in normalized for keyword in ["일부", "조금", "반만", "조금했", "덜했"]):
@@ -105,6 +119,8 @@ class MessageInterpreterService:
                 summary="Task partially completed.",
                 confidence=0.92,
                 feedback_type="did_not_finish",
+                target_task_ids=[],
+                mentioned_task_titles=[],
             )
 
         if any(keyword in normalized for keyword in ["취소", "그만", "안할래"]):
@@ -113,6 +129,8 @@ class MessageInterpreterService:
                 target_scope="active_task" if active_task else "none",
                 summary="Cancel current task.",
                 confidence=0.9,
+                target_task_ids=[],
+                mentioned_task_titles=[],
             )
 
         if "10분" in normalized and any(keyword in normalized for keyword in ["미뤄", "늦춰", "밀어"]):
@@ -122,6 +140,8 @@ class MessageInterpreterService:
                 summary="Delay by 10 minutes.",
                 confidence=0.9,
                 reschedule_minutes=10,
+                target_task_ids=[],
+                mentioned_task_titles=[],
             )
 
         if any(keyword in normalized for keyword in ["미뤄", "늦춰", "밀어"]):
@@ -131,6 +151,8 @@ class MessageInterpreterService:
                 summary="Reschedule current task.",
                 confidence=0.65,
                 reschedule_minutes=30,
+                target_task_ids=[],
+                mentioned_task_titles=[],
             )
 
         if active_task and active_task.end_at < now:
@@ -139,9 +161,18 @@ class MessageInterpreterService:
                 target_scope="active_task",
                 summary="General update for the latest active task.",
                 confidence=0.35,
+                target_task_ids=[],
+                mentioned_task_titles=[],
             )
 
-        return InterpretedMessage(kind="unknown", target_scope="none", summary="No reliable interpretation.", confidence=0.1)
+        return InterpretedMessage(
+            kind="unknown",
+            target_scope="none",
+            summary="No reliable interpretation.",
+            confidence=0.1,
+            target_task_ids=[],
+            mentioned_task_titles=[],
+        )
 
     def _mentions_multiple(self, normalized: str, today_tasks) -> bool:
         if any(keyword in normalized for keyword in ["둘다", "둘", "전부", "모두", "다못"]):

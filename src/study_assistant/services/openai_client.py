@@ -106,7 +106,9 @@ class OpenAIAssistantClient:
                         "role": "developer",
                         "content": (
                             "You interpret short Telegram messages for a study assistant. "
-                            "Return the most actionable intent, favoring concise and practical interpretations."
+                            "Return the most actionable intent, favoring concise and practical interpretations. "
+                            "If the user refers to one or more specific tasks, include their IDs in target_task_ids "
+                            "and optionally their titles in mentioned_task_titles."
                         ),
                     },
                     {
@@ -239,6 +241,14 @@ class OpenAIAssistantClient:
                         None,
                     ],
                 },
+                "target_task_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "mentioned_task_titles": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
             },
             "required": [
                 "kind",
@@ -247,5 +257,7 @@ class OpenAIAssistantClient:
                 "confidence",
                 "reschedule_minutes",
                 "feedback_type",
+                "target_task_ids",
+                "mentioned_task_titles",
             ],
         }

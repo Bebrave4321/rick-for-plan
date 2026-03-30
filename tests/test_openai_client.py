@@ -82,6 +82,8 @@ async def test_interpret_message_includes_recent_dialogue_context():
         "confidence": 0.9,
         "reschedule_minutes": 10,
         "feedback_type": None,
+        "target_task_ids": [],
+        "mentioned_task_titles": [],
     }
     client = OpenAIAssistantClient(Settings(openai_api_key="test-key"))
     fake_client = FakeOpenAIClient(payload)

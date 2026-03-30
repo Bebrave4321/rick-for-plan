@@ -97,14 +97,20 @@ class AssistantBrain:
         if interpreted.kind == "unknown":
             return []
 
-        if interpreted.kind == "mark_missed" and interpreted.target_scope == "multiple":
-            matched_tasks = self._select_multiple_tasks(text=text, today_tasks=today_tasks, now=now)
+        if interpreted.target_scope == "multiple":
+            matched_tasks = self._select_multiple_tasks(
+                interpreted=interpreted,
+                text=text,
+                today_tasks=today_tasks,
+                now=now,
+            )
             if matched_tasks:
                 return [
                     ActionProposal(
                         kind=interpreted.kind,
                         target_scope="multiple",
                         target_task_id=task.id,
+                        target_task_title=task.title,
                         summary=f"Mark '{task.title}' as missed.",
                         confidence=interpreted.confidence,
                         feedback_type=interpreted.feedback_type,
@@ -112,11 +118,20 @@ class AssistantBrain:
                     for task in matched_tasks
                 ]
 
+        resolved_active_task = self._resolve_single_task(
+            interpreted=interpreted,
+            active_task=active_task,
+            today_tasks=today_tasks,
+        )
+        if interpreted.target_scope == "active_task" and resolved_active_task is None:
+            return []
+
         return [
             ActionProposal(
                 kind=interpreted.kind,
                 target_scope=interpreted.target_scope,
-                target_task_id=getattr(active_task, "id", None),
+                target_task_id=getattr(resolved_active_task, "id", None),
+                target_task_title=getattr(resolved_active_task, "title", None),
                 summary=interpreted.summary,
                 confidence=interpreted.confidence,
                 reschedule_minutes=interpreted.reschedule_minutes,
@@ -124,7 +139,7 @@ class AssistantBrain:
             )
         ]
 
-    def _select_multiple_tasks(self, *, text: str, today_tasks, now: datetime) -> list[object]:
+    def _select_multiple_tasks(self, *, interpreted: InterpretedMessage, text: str, today_tasks, now: datetime) -> list[object]:
         normalized_text = self._normalize(text)
         candidates = [
             task
@@ -133,6 +148,14 @@ class AssistantBrain:
         ]
         if not candidates:
             return []
+
+        explicit_matches = self._match_tasks_by_hints(
+            tasks=candidates,
+            target_task_ids=interpreted.target_task_ids,
+            mentioned_titles=interpreted.mentioned_task_titles,
+        )
+        if explicit_matches:
+            return explicit_matches
 
         matched = []
         for task in candidates:
@@ -149,6 +172,38 @@ class AssistantBrain:
 
         if any(keyword in normalized_text for keyword in ["둘다", "둘", "전부", "모두", "다"]):
             return candidates
+
+        return []
+
+    def _resolve_single_task(self, *, interpreted: InterpretedMessage, active_task, today_tasks) -> object | None:
+        if active_task is not None:
+            return active_task
+
+        explicit_matches = self._match_tasks_by_hints(
+            tasks=today_tasks,
+            target_task_ids=interpreted.target_task_ids,
+            mentioned_titles=interpreted.mentioned_task_titles,
+        )
+        if len(explicit_matches) == 1:
+            return explicit_matches[0]
+        return None
+
+    def _match_tasks_by_hints(self, *, tasks, target_task_ids: list[str], mentioned_titles: list[str]) -> list[object]:
+        if target_task_ids:
+            matched_by_id = [task for task in tasks if getattr(task, "id", None) in target_task_ids]
+            if matched_by_id:
+                return matched_by_id
+
+        normalized_titles = {self._normalize(title) for title in mentioned_titles if title}
+        if normalized_titles:
+            matched_by_title = []
+            for task in tasks:
+                title = self._normalize(getattr(task, "title", "") or "")
+                topic = self._normalize(getattr(task, "topic", "") or "")
+                if title in normalized_titles or topic in normalized_titles:
+                    matched_by_title.append(task)
+            if matched_by_title:
+                return matched_by_title
 
         return []
 
