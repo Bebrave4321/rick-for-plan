@@ -5,7 +5,6 @@ from datetime import date, datetime, time, timedelta
 
 from study_assistant.core.config import Settings
 from study_assistant.models.entities import (
-    PendingPromptType,
     TaskStatus,
     WeeklyPlanStatus,
 )
@@ -20,14 +19,16 @@ from study_assistant.schemas.contracts import (
 )
 from study_assistant.services.context_assembler import ContextAssembler
 from study_assistant.services.decision_engine import DecisionEngine
+from study_assistant.services.assistant_brain import AssistantBrain
 from study_assistant.services.button_action_handler import ButtonActionHandler
 from study_assistant.services.command_handler import CommandHandler
 from study_assistant.services.input_handler import InputHandler
 from study_assistant.services.internal_events import InternalEvent
 from study_assistant.services.response_composer import ResponseComposer
+from study_assistant.services.scheduler_event_handler import SchedulerEventHandler
 from study_assistant.services.task_executor import TaskExecutor
 from study_assistant.services.text_action_handler import TextActionHandler
-from study_assistant.services.assistant_brain import AssistantBrain
+from study_assistant.services.user_message_handler import UserMessageHandler
 from study_assistant.services.weekly_report_service import WeeklyReportService
 
 
@@ -53,6 +54,8 @@ class StudyAssistantService:
         button_action_handler: ButtonActionHandler | None = None,
         weekly_report_service: WeeklyReportService | None = None,
         command_handler: CommandHandler | None = None,
+        user_message_handler: UserMessageHandler | None = None,
+        scheduler_event_handler: SchedulerEventHandler | None = None,
     ):
         self.settings = settings
         self.session_factory = session_factory
@@ -83,6 +86,20 @@ class StudyAssistantService:
             telegram_client=telegram_client,
             response_composer=self.response_composer,
             weekly_report_service=self.weekly_report_service,
+        )
+        self.user_message_handler = user_message_handler or UserMessageHandler(
+            settings=settings,
+            context_assembler=self.context_assembler,
+            command_handler=self.command_handler,
+            text_action_handler=self.text_action_handler,
+            assistant_brain=self.assistant_brain,
+            telegram_client=telegram_client,
+        )
+        self.scheduler_event_handler = scheduler_event_handler or SchedulerEventHandler(
+            context_assembler=self.context_assembler,
+            task_executor=self.task_executor,
+            response_composer=self.response_composer,
+            telegram_client=telegram_client,
         )
 
     async def close(self) -> None:
@@ -396,6 +413,9 @@ class StudyAssistantService:
         now = self.now()
         async with self.session_factory() as session:
             repo = AssistantRepository(session)
+            await self.user_message_handler.handle(repo=repo, event=event, now=now)
+            await session.commit()
+            return
             context = await self.context_assembler.build_message_context(
                 repo,
                 telegram_user_id=event.telegram_user_id,
@@ -514,12 +534,16 @@ class StudyAssistantService:
             await session.commit()
 
     async def _handle_scheduler_event(self, event: InternalEvent) -> bool:
-        if event.task_id is None or event.chat_id is None or event.prompt_kind is None:
-            return False
-
-        now = event.occurred_at or self.now()
         async with self.session_factory() as session:
             repo = AssistantRepository(session)
+            handled = await self.scheduler_event_handler.handle(
+                repo=repo,
+                event=event,
+                now=event.occurred_at or self.now(),
+            )
+            if handled:
+                await session.commit()
+            return handled
             context = await self.context_assembler.build_task_context(
                 repo,
                 telegram_user_id=event.telegram_user_id,
