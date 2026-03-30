@@ -37,8 +37,15 @@ class ButtonActionHandler:
         action: str,
         chat_id: int | None,
         now: datetime,
+        daily_conversation=None,
     ) -> None:
         target_chat_id = chat_id or user.telegram_chat_id
+        await repo.append_conversation_turn(
+            daily_conversation,
+            role="user",
+            text=self._button_label(action),
+            occurred_at=now,
+        )
 
         if action == "start":
             self.task_executor.mark_task_started(task)
@@ -50,7 +57,13 @@ class ButtonActionHandler:
                 interpreted_payload={"action": action},
                 result_status=TaskStatus.IN_PROGRESS,
             )
-            await self.telegram_client.send_message(target_chat_id, f"좋아요. '{task.title}' 시작으로 기록할게요.")
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=target_chat_id,
+                text=f"좋아요. '{task.title}' 시작으로 기록할게요.",
+                now=now,
+            )
             return
 
         if action == "delay10":
@@ -69,7 +82,13 @@ class ButtonActionHandler:
                 interpreted_payload={"action": action},
                 result_status=TaskStatus.RESCHEDULED,
             )
-            await self.telegram_client.send_message(target_chat_id, f"'{task.title}' 일정을 10분 뒤로 옮겼어요.")
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=target_chat_id,
+                text=f"'{task.title}' 일정을 10분 뒤로 옮겼어요.",
+                now=now,
+            )
             return
 
         if action == "skip":
@@ -82,8 +101,10 @@ class ButtonActionHandler:
                 interpreted_payload={"action": action},
                 result_status=TaskStatus.MISSED,
                 feedback_type=None,
-                lead_text=f"괜찮아요. '{task.title}'은 못 한 것으로 기록했어요. 다시 잡을까요?",
+                lead_text=f"괜찮아요. '{task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?",
                 chat_id=target_chat_id,
+                daily_conversation=daily_conversation,
+                now=now,
             )
             return
 
@@ -96,7 +117,13 @@ class ButtonActionHandler:
                 interpreted_kind="progress_ok",
                 interpreted_payload={"action": action},
             )
-            await self.telegram_client.send_message(target_chat_id, "좋아요. 그대로 이어가면 돼요.")
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=target_chat_id,
+                text="좋아요. 그대로 이어가면 돼요.",
+                now=now,
+            )
             return
 
         if action == "progress_help":
@@ -108,7 +135,13 @@ class ButtonActionHandler:
                 interpreted_kind="progress_help",
                 interpreted_payload={"action": action},
             )
-            await self.telegram_client.send_message(target_chat_id, "괜찮아요. 끝난 뒤 남은 분량만 알려주면 다시 정리할게요.")
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=target_chat_id,
+                text="괜찮아요. 지금 상태를 한두 문장으로 말해주면 다시 정리해볼게요.",
+                now=now,
+            )
             return
 
         if action == "done":
@@ -119,7 +152,13 @@ class ButtonActionHandler:
                 raw_text="done",
                 completed_at=now,
             )
-            await self.telegram_client.send_message(target_chat_id, f"좋아요. '{task.title}' 완료로 기록했어요.")
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=target_chat_id,
+                text=f"좋아요. '{task.title}' 완료로 기록했어요.",
+                now=now,
+            )
             return
 
         if action == "partial":
@@ -134,6 +173,8 @@ class ButtonActionHandler:
                 feedback_type=FeedbackType.DID_NOT_FINISH,
                 lead_text=f"'{task.title}'은 일부 완료로 기록했어요. 남은 분량을 다시 잡을까요?",
                 chat_id=target_chat_id,
+                daily_conversation=daily_conversation,
+                now=now,
             )
             return
 
@@ -149,36 +190,85 @@ class ButtonActionHandler:
                 feedback_type=None,
                 lead_text=f"알겠어요. '{task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?",
                 chat_id=target_chat_id,
+                daily_conversation=daily_conversation,
+                now=now,
             )
             return
 
         if action == "reschedTonight":
             await self.text_action_handler.reschedule_to_tonight(repo, task, now=now)
-            await self.telegram_client.send_message(
-                target_chat_id,
-                self.response_composer.reschedule_confirmation(task, "오늘 저녁"),
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=target_chat_id,
+                text=self.response_composer.reschedule_confirmation(task, "오늘 저녁"),
+                now=now,
             )
             return
 
         if action == "reschedTomorrow":
             await self.text_action_handler.reschedule_to_tomorrow(repo, task, now=now)
-            await self.telegram_client.send_message(
-                target_chat_id,
-                self.response_composer.reschedule_confirmation(task, "내일 저녁"),
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=target_chat_id,
+                text=self.response_composer.reschedule_confirmation(task, "내일 저녁"),
+                now=now,
             )
             return
 
         if action == "suggest":
             suggestions = self.decision_engine.build_reschedule_suggestions(now)
-            await self.telegram_client.send_message(
-                target_chat_id,
-                self.decision_engine.suggestion_text(suggestions, task.end_at - task.start_at),
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=target_chat_id,
+                text=self.decision_engine.suggestion_text(suggestions, task.end_at - task.start_at),
+                now=now,
             )
             return
 
         if action == "cancel":
             await self.text_action_handler.cancel_task(repo, task, reason="User cancelled the task.")
-            await self.telegram_client.send_message(target_chat_id, f"'{task.title}' 일정은 취소로 처리했어요.")
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=target_chat_id,
+                text=f"'{task.title}' 일정은 취소로 처리했어요.",
+                now=now,
+            )
             return
 
-        await self.telegram_client.send_message(target_chat_id, "아직 지원하지 않는 버튼이에요.")
+        await self._send_and_log(
+            repo,
+            daily_conversation=daily_conversation,
+            chat_id=target_chat_id,
+            text="아직 지원하지 않는 버튼이에요.",
+            now=now,
+        )
+
+    async def _send_and_log(self, repo, *, daily_conversation, chat_id: int, text: str, now, reply_markup=None) -> None:
+        await self.telegram_client.send_message(chat_id, text, reply_markup=reply_markup)
+        await repo.append_conversation_turn(
+            daily_conversation,
+            role="assistant",
+            text=text,
+            occurred_at=now,
+        )
+
+    def _button_label(self, action: str) -> str:
+        labels = {
+            "start": "시작했어요",
+            "delay10": "10분만 미룰게요",
+            "skip": "오늘은 못 해요",
+            "progress_ok": "계속 진행 중이에요",
+            "progress_help": "조금 버거워요",
+            "done": "완료했어요",
+            "partial": "일부 했어요",
+            "missed": "못 했어요",
+            "reschedTonight": "오늘 저녁으로",
+            "reschedTomorrow": "내일 저녁으로",
+            "suggest": "추천 시간 보여줘",
+            "cancel": "취소할게요",
+        }
+        return labels.get(action, f"[button:{action}]")

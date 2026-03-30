@@ -478,3 +478,24 @@ async def test_run_due_scan_dispatches_scheduler_event_for_checkin():
         await engine.dispose()
         if db_path.exists():
             db_path.unlink()
+
+
+@pytest.mark.asyncio
+async def test_unclear_message_triggers_single_clarification_prompt():
+    service, telegram_client, session_factory, engine, db_path = await build_db_service(".assistant-clarify.db")
+
+    try:
+        await create_user(service, 1008)
+
+        await service.process_text_message(
+            telegram_user_id=1008,
+            chat_id=1008,
+            display_name="LG",
+            text="그거 좀 해줘",
+        )
+
+        assert "조금만 더 구체적으로" in telegram_client.messages[-1]["text"]
+    finally:
+        await engine.dispose()
+        if db_path.exists():
+            db_path.unlink()

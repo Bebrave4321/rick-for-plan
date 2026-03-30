@@ -13,6 +13,8 @@ class AssistantContext:
     daily_conversation: object | None = None
     active_task: object | None = None
     today_tasks: list[object] = field(default_factory=list)
+    conversation_summary: str | None = None
+    recent_dialogue: list[dict[str, str]] = field(default_factory=list)
 
 
 class ContextAssembler:
@@ -38,6 +40,7 @@ class ContextAssembler:
             timezone=default_timezone,
         )
         daily_conversation = await repo.get_or_create_daily_conversation(user.id, now.date())
+        conversation_summary, recent_dialogue = repo.get_conversation_context(daily_conversation)
         active_task = await repo.get_active_message_task(user.id, now)
         today_tasks = list(await repo.list_tasks_for_day(user.id, now.date(), self.timezone))
         self._localize_task_datetimes(active_task)
@@ -50,6 +53,8 @@ class ContextAssembler:
             daily_conversation=daily_conversation,
             active_task=active_task,
             today_tasks=today_tasks,
+            conversation_summary=conversation_summary,
+            recent_dialogue=recent_dialogue,
         )
 
     async def build_button_context(
@@ -78,10 +83,19 @@ class ContextAssembler:
         user = await repo.get_user_by_telegram_user_id(telegram_user_id)
         task = await repo.get_task(task_id)
         self._localize_task_datetimes(task)
+        daily_conversation = None
+        conversation_summary = None
+        recent_dialogue: list[dict[str, str]] = []
+        if user is not None:
+            daily_conversation = await repo.get_or_create_daily_conversation(user.id, now.date())
+            conversation_summary, recent_dialogue = repo.get_conversation_context(daily_conversation)
         return AssistantContext(
             now=now,
             user=user,
+            daily_conversation=daily_conversation,
             active_task=task,
+            conversation_summary=conversation_summary,
+            recent_dialogue=recent_dialogue,
         )
 
     def _localize_task_datetimes(self, task) -> None:

@@ -26,18 +26,23 @@ class AssistantBrain:
         daily_conversation,
         active_task,
         today_tasks,
+        conversation_summary: str | None,
+        recent_dialogue: list[dict[str, str]],
         now: datetime,
     ) -> BrainResult:
-        interpreted = await self.message_interpreter.interpret(
+        interpreted, source = await self.message_interpreter.interpret(
             text=text,
             user=user,
             daily_conversation=daily_conversation,
             active_task=active_task,
             today_tasks=today_tasks,
+            conversation_summary=conversation_summary,
+            recent_dialogue=recent_dialogue,
             now=now,
         )
         return self._build_result(
             interpreted=interpreted,
+            source=source,
             text=text,
             active_task=active_task,
             today_tasks=today_tasks,
@@ -48,6 +53,7 @@ class AssistantBrain:
         self,
         *,
         interpreted: InterpretedMessage,
+        source: str,
         text: str,
         active_task,
         today_tasks,
@@ -60,9 +66,23 @@ class AssistantBrain:
             today_tasks=today_tasks,
             now=now,
         )
+        needs_clarification = False
+        clarification_message = None
+
+        if not actions:
+            needs_clarification = True
+            clarification_message = self._clarification_message(
+                interpreted=interpreted,
+                active_task=active_task,
+            )
+
         return BrainResult(
             actions=actions,
             summary=interpreted.summary,
+            source=source,
+            response_mode="clarify" if needs_clarification else "action",
+            needs_clarification=needs_clarification,
+            clarification_message=clarification_message,
         )
 
     def _expand_actions(
@@ -134,3 +154,15 @@ class AssistantBrain:
 
     def _normalize(self, value: str) -> str:
         return "".join(ch for ch in value.lower().strip() if not ch.isspace())
+
+    def _clarification_message(self, *, interpreted: InterpretedMessage, active_task) -> str:
+        if interpreted.kind == "status_update" and active_task is not None:
+            return (
+                f"'{active_task.title}' 일정 상태를 조금만 더 구체적으로 말해줄래요?\n"
+                "예: 완료했어요, 못 했어요, 30분 뒤로 미뤄줘"
+            )
+
+        return (
+            "원하는 작업을 한 문장으로 조금만 더 구체적으로 말해줄래요?\n"
+            "예: 오늘 6시로 옮겨줘, 오늘은 못 했어요, 추천 시간 보여줘"
+        )

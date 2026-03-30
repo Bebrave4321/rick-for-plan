@@ -1,5 +1,5 @@
 import json
-from datetime import date, time
+from datetime import date, datetime, time
 from types import SimpleNamespace
 
 import pytest
@@ -37,6 +37,7 @@ class DummyConversation:
     def __init__(self):
         self.openai_conversation_id = "conv_old"
         self.last_response_id = None
+        self.summary_context = None
 
 
 @pytest.mark.asyncio
@@ -73,7 +74,7 @@ async def test_generate_weekly_plan_uses_json_schema_response_format():
 
 
 @pytest.mark.asyncio
-async def test_interpret_message_uses_json_schema_response_format():
+async def test_interpret_message_includes_recent_dialogue_context():
     payload = {
         "kind": "postpone_10",
         "target_scope": "active_task",
@@ -93,6 +94,12 @@ async def test_interpret_message_uses_json_schema_response_format():
         daily_conversation=conversation,
         active_task=None,
         today_tasks=[],
+        conversation_summary="User prefers practical replies.",
+        recent_dialogue=[
+            {"role": "user", "text": "오늘은 좀 힘들어", "occurred_at": "2026-03-27T17:40:00+09:00"},
+            {"role": "assistant", "text": "괜찮아요. 필요한 만큼만 조정해볼게요.", "occurred_at": "2026-03-27T17:40:02+09:00"},
+        ],
+        now=datetime(2026, 3, 27, 18, 0),
     )
 
     assert interpreted is not None
@@ -101,4 +108,8 @@ async def test_interpret_message_uses_json_schema_response_format():
     assert "conversation" not in call
     assert "tools" not in call
     assert call["text"]["format"]["type"] == "json_schema"
+    prompt = json.loads(call["input"][1]["content"])
+    assert prompt["conversation_summary"] == "User prefers practical replies."
+    assert len(prompt["recent_dialogue"]) == 2
+    assert prompt["current_date"] == "2026-03-27"
     assert conversation.last_response_id == "resp_test"

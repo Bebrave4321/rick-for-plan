@@ -287,15 +287,22 @@ class StudyAssistantService:
 
                 yesterday_tasks = await repo.list_tasks_for_day(user.id, today - timedelta(days=1), self.settings.timezone)
                 today_tasks = await repo.list_tasks_for_day(user.id, today, self.settings.timezone)
+                summary_text = self.response_composer.daily_summary(yesterday_tasks, today_tasks)
                 await self.telegram_client.send_message(
                     user.telegram_chat_id,
-                    self.response_composer.daily_summary(yesterday_tasks, today_tasks),
+                    summary_text,
                 )
                 user.last_daily_summary_sent_for = today
-                await repo.get_or_create_daily_conversation(
+                conversation = await repo.get_or_create_daily_conversation(
                     user.id,
                     conversation_date=today,
                     started_by_morning_summary=True,
+                )
+                await repo.append_conversation_turn(
+                    conversation,
+                    role="assistant",
+                    text=summary_text,
+                    occurred_at=self.now(),
                 )
                 sent += 1
             await session.commit()
@@ -310,11 +317,19 @@ class StudyAssistantService:
             for user in users:
                 if user.last_weekly_prompt_sent_for == today:
                     continue
+                planning_prompt = "이번 주 비가용 시간과 공부 목표를 보내주세요. /plan 을 보내면 입력 형식을 안내할게요."
                 await self.telegram_client.send_message(
                     user.telegram_chat_id,
-                    "이번 주 비가용 시간과 공부 목표를 보내주세요. /plan 을 보내면 입력 형식을 안내할게요.",
+                    planning_prompt,
                 )
                 user.last_weekly_prompt_sent_for = today
+                conversation = await repo.get_or_create_daily_conversation(user.id, today)
+                await repo.append_conversation_turn(
+                    conversation,
+                    role="assistant",
+                    text=planning_prompt,
+                    occurred_at=self.now(),
+                )
                 sent += 1
             await session.commit()
         return {"sent_count": sent, "date": today.isoformat()}
@@ -395,9 +410,16 @@ class StudyAssistantService:
             today_tasks = context.today_tasks
 
             command = (event.text or "").strip().lower()
+            await repo.append_conversation_turn(
+                daily_conversation,
+                role="user",
+                text=event.text or "",
+                occurred_at=now,
+            )
             if await self.command_handler.handle(
                 repo=repo,
                 user=user,
+                daily_conversation=daily_conversation,
                 chat_id=event.chat_id,
                 command=command,
                 now=now,
@@ -416,6 +438,7 @@ class StudyAssistantService:
                     task=active_task,
                     raw_text=event.text or "",
                     now=now,
+                    daily_conversation=daily_conversation,
                 )
                 if handled:
                     await session.commit()
@@ -427,8 +450,24 @@ class StudyAssistantService:
                 daily_conversation=daily_conversation,
                 active_task=active_task,
                 today_tasks=today_tasks,
+                conversation_summary=context.conversation_summary,
+                recent_dialogue=context.recent_dialogue,
                 now=now,
             )
+
+            if brain_result.needs_clarification and not brain_result.actions:
+                clarification_text = brain_result.clarification_message or (
+                    "원하는 작업을 조금만 더 구체적으로 말해줄래요?"
+                )
+                await self.telegram_client.send_message(event.chat_id, clarification_text)
+                await repo.append_conversation_turn(
+                    daily_conversation,
+                    role="assistant",
+                    text=clarification_text,
+                    occurred_at=now,
+                )
+                await session.commit()
+                return
 
             await self.text_action_handler.apply_interpreted_message(
                 repo=repo,
@@ -438,6 +477,7 @@ class StudyAssistantService:
                 interpreted=brain_result,
                 raw_text=event.text or "",
                 now=now,
+                daily_conversation=daily_conversation,
             )
             await session.commit()
 
@@ -469,6 +509,7 @@ class StudyAssistantService:
                 action=action,
                 chat_id=event.chat_id,
                 now=context.now,
+                daily_conversation=context.daily_conversation,
             )
             await session.commit()
 
@@ -493,10 +534,17 @@ class StudyAssistantService:
             if not self.task_executor.apply_due_prompt_state(task, prompt_kind=event.prompt_kind, occurred_at=now):
                 return False
 
+            prompt_text = self.response_composer.prompt_text(task, event.prompt_kind)
             await self.telegram_client.send_message(
                 event.chat_id,
-                self.response_composer.prompt_text(task, event.prompt_kind),
+                prompt_text,
                 reply_markup=self.response_composer.prompt_keyboard(task.id, event.prompt_kind),
+            )
+            await repo.append_conversation_turn(
+                context.daily_conversation,
+                role="assistant",
+                text=prompt_text,
+                occurred_at=now,
             )
 
             await session.commit()

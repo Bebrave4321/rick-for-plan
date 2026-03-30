@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, time, timedelta
 from typing import Sequence
 
@@ -98,6 +99,70 @@ class AssistantRepository:
         if started_by_morning_summary:
             conversation.started_by_morning_summary = True
         return conversation
+
+    def get_conversation_context(self, conversation: DailyConversation | None) -> tuple[str | None, list[dict[str, str]]]:
+        if conversation is None or not conversation.summary_context:
+            return None, []
+
+        try:
+            payload = json.loads(conversation.summary_context)
+        except json.JSONDecodeError:
+            return conversation.summary_context, []
+
+        if not isinstance(payload, dict):
+            return None, []
+
+        summary = payload.get("summary")
+        turns = payload.get("recent_turns") or []
+        normalized_turns: list[dict[str, str]] = []
+        for turn in turns:
+            if not isinstance(turn, dict):
+                continue
+            role = str(turn.get("role") or "").strip()
+            text = str(turn.get("text") or "").strip()
+            occurred_at = str(turn.get("occurred_at") or "").strip()
+            if not role or not text:
+                continue
+            normalized_turns.append(
+                {
+                    "role": role,
+                    "text": text,
+                    "occurred_at": occurred_at,
+                }
+            )
+        return summary, normalized_turns
+
+    async def append_conversation_turn(
+        self,
+        conversation: DailyConversation | None,
+        *,
+        role: str,
+        text: str,
+        occurred_at: datetime,
+        limit: int = 6,
+    ) -> None:
+        if conversation is None:
+            return
+
+        normalized_text = text.strip()
+        if not normalized_text:
+            return
+
+        summary, turns = self.get_conversation_context(conversation)
+        turns.append(
+            {
+                "role": role,
+                "text": normalized_text,
+                "occurred_at": occurred_at.isoformat(),
+            }
+        )
+        conversation.summary_context = json.dumps(
+            {
+                "summary": summary,
+                "recent_turns": turns[-limit:],
+            },
+            ensure_ascii=False,
+        )
 
     async def get_latest_weekly_plan(self, user_id: str) -> WeeklyPlan | None:
         result = await self.session.execute(

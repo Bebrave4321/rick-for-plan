@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date
 
 from openai import AsyncOpenAI
 
@@ -75,16 +74,28 @@ class OpenAIAssistantClient:
             logger.exception("OpenAI weekly plan payload validation failed")
             return None
 
-    async def interpret_message(self, text: str, user, daily_conversation, active_task, today_tasks) -> InterpretedMessage | None:
+    async def interpret_message(
+        self,
+        text: str,
+        user,
+        daily_conversation,
+        active_task,
+        today_tasks,
+        conversation_summary: str | None,
+        recent_dialogue: list[dict[str, str]],
+        now,
+    ) -> InterpretedMessage | None:
         if not self.client:
             return None
 
         prompt = {
-            "current_date": date.today().isoformat(),
+            "current_date": now.date().isoformat(),
             "user_timezone": user.timezone,
             "message": text,
             "active_task": self._serialize_task(active_task),
             "today_tasks": [self._serialize_task(task) for task in today_tasks],
+            "conversation_summary": conversation_summary,
+            "recent_dialogue": recent_dialogue[-6:],
         }
 
         try:

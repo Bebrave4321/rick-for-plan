@@ -9,7 +9,17 @@ class MessageInterpreterService:
     def __init__(self, openai_client):
         self.openai_client = openai_client
 
-    async def interpret(self, text: str, user, daily_conversation, active_task, today_tasks, now: datetime) -> InterpretedMessage:
+    async def interpret(
+        self,
+        text: str,
+        user,
+        daily_conversation,
+        active_task,
+        today_tasks,
+        conversation_summary: str | None,
+        recent_dialogue: list[dict[str, str]],
+        now: datetime,
+    ) -> tuple[InterpretedMessage, str]:
         if self.openai_client.enabled:
             interpreted = await self.openai_client.interpret_message(
                 text=text,
@@ -17,11 +27,14 @@ class MessageInterpreterService:
                 daily_conversation=daily_conversation,
                 active_task=active_task,
                 today_tasks=today_tasks,
+                conversation_summary=conversation_summary,
+                recent_dialogue=recent_dialogue,
+                now=now,
             )
             if interpreted is not None and interpreted.confidence >= 0.45:
-                return interpreted
+                return interpreted, "openai"
 
-        return self._rule_based_interpretation(text, active_task, today_tasks, now)
+        return self._rule_based_interpretation(text, active_task, today_tasks, now), "rule"
 
     def _rule_based_interpretation(self, text: str, active_task, today_tasks, now: datetime) -> InterpretedMessage:
         normalized = self._normalize(text)

@@ -134,6 +134,9 @@ FeedbackKind = Literal[
     None,
 ]
 
+InterpretationSource = Literal["openai", "rule"]
+ResponseMode = Literal["action", "clarify"]
+
 
 class InterpretedMessage(BaseModel):
     kind: IntentKind
@@ -157,6 +160,8 @@ class ActionProposal(BaseModel):
 class BrainResult(BaseModel):
     actions: list[ActionProposal] = Field(default_factory=list)
     summary: str = ""
+    source: InterpretationSource = "rule"
+    response_mode: ResponseMode = "action"
     needs_clarification: bool = False
     clarification_message: str | None = None
 

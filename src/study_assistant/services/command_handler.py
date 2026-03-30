@@ -16,6 +16,7 @@ class CommandHandler:
         *,
         repo,
         user,
+        daily_conversation,
         chat_id: int,
         command: str,
         now,
@@ -31,10 +32,13 @@ class CommandHandler:
                 pending_prompt_type=PendingPromptType.CHECKIN,
                 prompt_sent_at=now,
             )
-            await self.telegram_client.send_message(
-                chat_id,
-                f"빠른 테스트예요. 지금 '{task.title}' 시작했나요?",
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=chat_id,
+                text=f"빠른 테스트예요. 지금 '{task.title}' 시작했나요?",
                 reply_markup=self.response_composer.checkin_keyboard(task.id),
+                now=now,
             )
             return True
 
@@ -49,28 +53,46 @@ class CommandHandler:
                 pending_prompt_type=PendingPromptType.COMPLETION,
                 prompt_sent_at=now,
             )
-            await self.telegram_client.send_message(
-                chat_id,
-                f"빠른 테스트예요. '{task.title}' 마무리됐어요?",
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=chat_id,
+                text=f"빠른 테스트예요. '{task.title}' 마무리됐어요?",
                 reply_markup=self.response_composer.completion_keyboard(task.id),
+                now=now,
             )
             return True
 
         if command == "/start":
-            await self.telegram_client.send_message(chat_id, self.response_composer.start_message())
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=chat_id,
+                text=self.response_composer.start_message(),
+                now=now,
+            )
             return True
 
         if command == "/plan":
-            await self.telegram_client.send_message(chat_id, self.response_composer.plan_help_message())
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=chat_id,
+                text=self.response_composer.plan_help_message(),
+                now=now,
+            )
             return True
 
         if command in {"/id", "/me"}:
-            await self.telegram_client.send_message(
-                chat_id,
-                (
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=chat_id,
+                text=(
                     f"telegram_user_id: {user.telegram_user_id}\n"
                     f"telegram_chat_id: {user.telegram_chat_id}"
                 ),
+                now=now,
             )
             return True
 
@@ -80,13 +102,25 @@ class CommandHandler:
                 user=user,
                 reference_date=now.date(),
             )
-            await self.telegram_client.send_message(
-                chat_id,
-                self.response_composer.weekly_report(report),
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=chat_id,
+                text=self.response_composer.weekly_report(report),
+                now=now,
             )
             return True
 
         return False
+
+    async def _send_and_log(self, repo, *, daily_conversation, chat_id: int, text: str, now, reply_markup=None) -> None:
+        await self.telegram_client.send_message(chat_id, text, reply_markup=reply_markup)
+        await repo.append_conversation_turn(
+            daily_conversation,
+            role="assistant",
+            text=text,
+            occurred_at=now,
+        )
 
     async def _create_manual_test_task(
         self,
