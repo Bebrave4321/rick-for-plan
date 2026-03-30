@@ -330,6 +330,62 @@ async def test_direct_free_text_reschedule_moves_active_task_to_specific_time():
 
 
 @pytest.mark.asyncio
+async def test_direct_free_text_reschedule_can_target_named_task_without_active_prompt():
+    service, telegram_client, session_factory, engine, db_path = await build_db_service(".assistant-direct-named-reschedule.db")
+
+    try:
+        await create_user(service, 1010)
+        now = service.now()
+
+        async with session_factory() as session:
+            user = (await session.execute(select(User).where(User.telegram_user_id == 1010))).scalar_one()
+            math_task = StudyTask(
+                user_id=user.id,
+                title="수학",
+                topic="적분",
+                start_at=now + timedelta(hours=4),
+                end_at=now + timedelta(hours=5),
+                source=TaskSource.MANUAL,
+                status=TaskStatus.PLANNED,
+            )
+            english_task = StudyTask(
+                user_id=user.id,
+                title="영어",
+                topic="독해",
+                start_at=now + timedelta(hours=5),
+                end_at=now + timedelta(hours=6),
+                source=TaskSource.MANUAL,
+                status=TaskStatus.PLANNED,
+            )
+            session.add_all([math_task, english_task])
+            await session.commit()
+
+        await service.process_text_message(
+            telegram_user_id=1010,
+            chat_id=1010,
+            display_name="LG",
+            text="영어 오늘 저녁 6시로 옮겨줘",
+        )
+
+        async with session_factory() as session:
+            tasks = (
+                await session.execute(select(StudyTask).order_by(StudyTask.title.asc()))
+            ).scalars().all()
+            by_title = {task.title: task for task in tasks}
+            assert by_title["영어"].status == TaskStatus.RESCHEDULED
+            assert by_title["영어"].start_at.hour == 18
+            assert by_title["영어"].start_at.minute == 0
+            assert by_title["수학"].status == TaskStatus.PLANNED
+
+        assert "영어" in telegram_client.messages[-1]["text"]
+        assert "18:00" in telegram_client.messages[-1]["text"]
+    finally:
+        await engine.dispose()
+        if db_path.exists():
+            db_path.unlink()
+
+
+@pytest.mark.asyncio
 async def test_multiple_missed_message_replans_only_matched_tasks():
     service, telegram_client, session_factory, engine, db_path = await build_db_service(".assistant-multi-missed.db")
 

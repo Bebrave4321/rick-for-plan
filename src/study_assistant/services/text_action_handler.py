@@ -38,6 +38,12 @@ class TextActionHandler:
         now: datetime,
         daily_conversation=None,
     ) -> None:
+        resolved_task = self._resolve_action_task(
+            active_task=active_task,
+            today_tasks=today_tasks,
+            interpreted=interpreted,
+        )
+
         if interpreted.kind == "weekly_plan_request":
             await self._send_and_log(
                 repo,
@@ -61,7 +67,7 @@ class TextActionHandler:
             )
             return
 
-        if self.requires_active_task(interpreted.kind) and active_task is None and interpreted.target_scope != "multiple":
+        if self.requires_active_task(interpreted.kind) and resolved_task is None and interpreted.target_scope != "multiple":
             await self._send_and_log(
                 repo,
                 daily_conversation=daily_conversation,
@@ -88,7 +94,7 @@ class TextActionHandler:
             await handler(
                 repo=repo,
                 user=user,
-                active_task=active_task,
+                active_task=resolved_task,
                 today_tasks=today_tasks,
                 interpreted=interpreted,
                 raw_text=raw_text,
@@ -104,6 +110,28 @@ class TextActionHandler:
             text="메시지를 확실히 이해하지 못했어요. 예를 들면 '완료했어', '10분 미뤄줘', '오늘은 못 해'처럼 보내주면 바로 반영할게요.",
             now=now,
         )
+
+    def _resolve_action_task(self, *, active_task, today_tasks, interpreted):
+        if interpreted.target_scope == "multiple":
+            return None
+
+        primary_action = getattr(interpreted, "primary_action", None)
+        if primary_action is None:
+            return active_task
+
+        target_task_id = getattr(primary_action, "target_task_id", None)
+        if target_task_id:
+            for task in today_tasks:
+                if task.id == target_task_id:
+                    return task
+
+        target_task_title = getattr(primary_action, "target_task_title", None)
+        if target_task_title:
+            for task in today_tasks:
+                if task.title == target_task_title:
+                    return task
+
+        return active_task
 
     async def handle_reschedule_followup(
         self,
