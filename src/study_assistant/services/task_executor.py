@@ -165,6 +165,7 @@ class TaskExecutor:
         current_start = self._today_evening_anchor(now)
         for task in sorted(tasks, key=lambda item: item.start_at):
             duration = task.end_at - task.start_at
+            current_start = self._normalize_bulk_replan_anchor(current_start, duration)
             old_start = task.start_at
             old_end = task.end_at
             task.start_at = current_start
@@ -185,6 +186,19 @@ class TaskExecutor:
                 reason="Bulk replan from current time.",
             )
             current_start = task.end_at + timedelta(minutes=15)
+
+    def _normalize_bulk_replan_anchor(self, candidate: datetime, duration: timedelta) -> datetime:
+        evening_start = datetime.combine(candidate.date(), time(19, 0), tzinfo=self.timezone)
+        evening_end = datetime.combine(candidate.date(), time(22, 30), tzinfo=self.timezone)
+
+        if candidate < evening_start:
+            candidate = evening_start
+
+        if candidate + duration > evening_end:
+            next_day = candidate.date() + timedelta(days=1)
+            return datetime.combine(next_day, time(19, 0), tzinfo=self.timezone)
+
+        return candidate
 
     def _today_evening_anchor(self, now: datetime) -> datetime:
         proposed = now + timedelta(minutes=30)
