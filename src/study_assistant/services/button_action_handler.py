@@ -101,7 +101,7 @@ class ButtonActionHandler:
                 interpreted_payload={"action": action},
                 result_status=TaskStatus.MISSED,
                 feedback_type=None,
-                lead_text=f"괜찮아요. '{task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?",
+                lead_text=f"알겠어요. '{task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?",
                 chat_id=target_chat_id,
                 daily_conversation=daily_conversation,
                 now=now,
@@ -139,7 +139,7 @@ class ButtonActionHandler:
                 repo,
                 daily_conversation=daily_conversation,
                 chat_id=target_chat_id,
-                text="괜찮아요. 지금 상태를 한두 문장으로 말해주면 다시 정리해볼게요.",
+                text="괜찮아요. 지금 상태를 한두 문장으로 말해주면 같이 다시 정리해볼게요.",
                 now=now,
             )
             return
@@ -171,7 +171,7 @@ class ButtonActionHandler:
                 interpreted_payload={"action": action},
                 result_status=TaskStatus.PARTIAL,
                 feedback_type=FeedbackType.DID_NOT_FINISH,
-                lead_text=f"'{task.title}'은 일부 완료로 기록했어요. 남은 분량을 다시 잡을까요?",
+                lead_text=f"좋아요. '{task.title}'은 일부만 한 걸로 기록했어요. 남은 분량을 다시 잡을까요?",
                 chat_id=target_chat_id,
                 daily_conversation=daily_conversation,
                 now=now,

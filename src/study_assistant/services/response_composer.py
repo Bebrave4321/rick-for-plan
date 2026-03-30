@@ -31,7 +31,7 @@ class ResponseComposer:
         return (
             "공부 일정 비서예요.\n"
             "- /plan 으로 주간 계획 안내를 볼 수 있어요.\n"
-            "- /id 로 텔레그램 ID를 확인할 수 있어요.\n"
+            "- /id 로 내 텔레그램 ID를 확인할 수 있어요.\n"
             "- 시작 전 알림, 시작 확인, 종료 확인, 재배치를 도와드릴게요."
         )
 
@@ -81,13 +81,13 @@ class ResponseComposer:
         return f"지금 '{task.title}' 시작했나요?"
 
     def recheck_prompt(self, task) -> str:
-        return f"'{task.title}' 시작 여부를 아직 못 들었어요. 지금 시작 가능한가요?"
+        return f"'{task.title}' 아직 시작 못 했나요? 지금 시작 가능할까요?"
 
     def progress_prompt(self, task) -> str:
-        return f"'{task.title}' 지금까지는 괜찮게 진행되고 있나요?"
+        return f"'{task.title}' 진행은 어때요? 너무 버겁진 않나요?"
 
     def completion_prompt(self, task) -> str:
-        return f"'{task.title}' 마무리됐어요?"
+        return f"빠르게 확인할게요. '{task.title}' 마무리됐어요?"
 
     def reschedule_prompt(self, lead_text: str) -> str:
         return (
@@ -115,10 +115,10 @@ class ResponseComposer:
         titles = [task.title for task in tasks]
         preview = ", ".join(titles[:3])
         if len(titles) > 3:
-            preview += " 외"
+            preview += " 등"
         return (
-            f"{preview} 일정을 못 한 일정으로 보고 다시 배치했어요.\n"
-            "오늘 남은 시간 기준으로 너무 빡세지 않게 옮겨뒀어요."
+            f"{preview} 일정을 못 한 것으로 보고 다시 배치했어요.\n"
+            "오늘 남은 시간 기준으로 너무 빡세지 않게 조정해둘게요."
         )
 
     def weekly_report(self, report) -> str:
@@ -129,9 +129,9 @@ class ResponseComposer:
             f"- 미룬 횟수: {report.rescheduled_count}회",
         ]
         if report.best_time_window:
-            lines.append(f"- 잘 된 시간대: {report.best_time_window}")
+            lines.append(f"- 잘된 시간대: {report.best_time_window}")
         else:
-            lines.append("- 잘 된 시간대: 아직 데이터가 많지 않아요")
+            lines.append("- 잘된 시간대: 아직 데이터가 많지 않아요")
         return "\n".join(lines)
 
     def checkin_keyboard(self, task_id: str) -> dict:
@@ -145,14 +145,14 @@ class ResponseComposer:
     def progress_keyboard(self, task_id: str) -> dict:
         return inline_keyboard(
             [
-                [("네 진행 중이에요", f"task:{task_id}:progress_ok"), ("조금 버거워요", f"task:{task_id}:progress_help")],
+                [("계속 진행 중이에요", f"task:{task_id}:progress_ok"), ("조금 버거워요", f"task:{task_id}:progress_help")],
             ]
         )
 
     def completion_keyboard(self, task_id: str) -> dict:
         return inline_keyboard(
             [
-                [("완료했어요", f"task:{task_id}:done"), ("일부만 했어요", f"task:{task_id}:partial")],
+                [("완료했어요", f"task:{task_id}:done"), ("일부 했어요", f"task:{task_id}:partial")],
                 [("못 했어요", f"task:{task_id}:missed")],
             ]
         )
