@@ -62,7 +62,7 @@ class TextActionHandler:
                 repo,
                 daily_conversation=daily_conversation,
                 chat_id=user.telegram_chat_id,
-                text="주간 계획 입력으로 보이지만, 현재 구현에서는 `/api/plans/weekly`가 가장 안정적이에요.",
+                text="주간 계획 입력으로 보이지만 현재 구현에서는 `/api/plans/weekly`가 가장 안정적이에요.",
                 now=now,
             )
             return
@@ -107,7 +107,7 @@ class TextActionHandler:
             repo,
             daily_conversation=daily_conversation,
             chat_id=user.telegram_chat_id,
-            text="메시지를 확실히 이해하지 못했어요. 예를 들면 '완료했어', '10분 미뤄줘', '오늘은 못 해'처럼 보내주면 바로 반영할게요.",
+            text="메시지를 확실하게 이해하지 못했어요. 예를 들면 '완료했어요', '10분 미뤄줘', '오늘은 못 했어요'처럼 보내주면 바로 반영할게요.",
             now=now,
         )
 
@@ -354,7 +354,7 @@ class TextActionHandler:
             interpreted_payload=interpreted.model_dump(mode="json"),
             result_status=TaskStatus.PARTIAL,
             feedback_type=FeedbackType.DID_NOT_FINISH,
-            lead_text=f"'{active_task.title}'은 일부 완료로 기록했어요. 남은 분량을 다시 잡을까요?",
+            lead_text=f"'{active_task.title}'은 일부만 한 걸로 기록했어요. 남은 분량을 다시 잡을까요?",
             chat_id=user.telegram_chat_id,
             daily_conversation=daily_conversation,
             now=now,

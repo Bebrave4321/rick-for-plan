@@ -329,7 +329,7 @@ class StudyAssistantService:
             for user in users:
                 if user.last_weekly_prompt_sent_for == today:
                     continue
-                planning_prompt = "이번 주 비가용 시간과 공부 목표를 보내주세요. /plan 을 보내면 입력 형식을 안내할게요."
+                planning_prompt = self.response_composer.weekly_planning_prompt()
                 await self.telegram_client.send_message(user.telegram_chat_id, planning_prompt)
                 user.last_weekly_prompt_sent_for = today
                 conversation = await repo.get_or_create_daily_conversation(user.id, today)

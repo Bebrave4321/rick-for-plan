@@ -45,6 +45,9 @@ class ResponseComposer:
             "필요하면 /id 로 텔레그램 ID부터 확인해 주세요."
         )
 
+    def weekly_planning_prompt(self) -> str:
+        return "이번 주 비가용 시간과 공부 목표를 보내주세요. /plan 을 보내면 입력 형식을 안내할게요."
+
     def weekly_plan_message(self, draft) -> str:
         lines = ["이번 주 계획 초안을 만들었어요.", draft.summary, ""]
         for session in draft.sessions[:10]:
@@ -90,26 +93,16 @@ class ResponseComposer:
         return f"빠르게 확인할게요. '{task.title}' 마무리됐어요?"
 
     def reschedule_prompt(self, lead_text: str) -> str:
-        return (
-            f"{lead_text}\n"
-            "언제로 다시 잡을까요?\n"
-            "예: 오늘 6시, 내일 7시 반, 30분 뒤"
-        )
+        return f"{lead_text}\n언제로 다시 잡을까요?\n예: 오늘 6시, 내일 7시 반, 30분 뒤"
 
     def freeform_reschedule_help(self) -> str:
         return "좋아요. 예: 오늘 6시, 내일 7시 반, 30분 뒤처럼 말로 답장해도 돼요."
 
     def reschedule_confirmation(self, task, label: str) -> str:
-        return (
-            f"'{task.title}'을 {label} 일정으로 옮겼어요.\n"
-            f"새 시간: {task.start_at:%m/%d %H:%M} - {task.end_at:%H:%M}"
-        )
+        return f"'{task.title}'을 {label} 일정으로 옮겼어요.\n새 시간: {task.start_at:%m/%d %H:%M} - {task.end_at:%H:%M}"
 
     def precise_reschedule_confirmation(self, task) -> str:
-        return (
-            f"좋아요. '{task.title}' 일정 다시 잡아뒀어요.\n"
-            f"새 시간: {task.start_at:%m/%d %H:%M} - {task.end_at:%H:%M}"
-        )
+        return f"좋아요. '{task.title}' 일정 다시 잡아뒀어요.\n새 시간: {task.start_at:%m/%d %H:%M} - {task.end_at:%H:%M}"
 
     def multiple_missed_replan_summary(self, tasks: list[object]) -> str:
         titles = [task.title for task in tasks]
@@ -117,7 +110,7 @@ class ResponseComposer:
         if len(titles) > 3:
             preview += " 등"
         return (
-            f"{preview} 일정을 못 한 것으로 보고 다시 배치했어요.\n"
+            f"{preview} 일정은 못 한 것으로 보고 다시 배치했어요.\n"
             "오늘 남은 시간 기준으로 너무 빡세지 않게 조정해둘게요."
         )
 
@@ -131,7 +124,7 @@ class ResponseComposer:
         if report.best_time_window:
             lines.append(f"- 잘된 시간대: {report.best_time_window}")
         else:
-            lines.append("- 잘된 시간대: 아직 데이터가 많지 않아요")
+            lines.append("- 잘된 시간대: 아직 데이터가 많지 않아요.")
         return "\n".join(lines)
 
     def checkin_keyboard(self, task_id: str) -> dict:

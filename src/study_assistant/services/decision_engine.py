@@ -26,7 +26,7 @@ class DecisionEngine:
     def decide_reschedule(self, text: str, now: datetime) -> RescheduleDecision:
         normalized = text.strip().lower()
 
-        if any(keyword in normalized for keyword in ["취소", "그만", "안 할래"]):
+        if any(keyword in normalized for keyword in ["취소", "그만", "안 할래", "안할래"]):
             return RescheduleDecision(decision_type="cancel")
 
         if any(keyword in normalized for keyword in ["추천", "골라", "제안"]):
@@ -41,7 +41,7 @@ class DecisionEngine:
                 return RescheduleDecision(
                     decision_type="clarify",
                     clarification_message=self._clarification_message(
-                        "이미 지난 시간처럼 보여요. 다시 한 번만 확인할게요."
+                        "지나간 시간처럼 보여서 다시 한 번만 확인할게요."
                     ),
                 )
             return RescheduleDecision(decision_type="reschedule", parsed_time=parsed_time)
@@ -53,9 +53,9 @@ class DecisionEngine:
 
     def suggestion_text(self, suggestions: list[ParsedTimeExpression], duration: timedelta) -> str:
         if not suggestions:
-            return "지금은 바로 제안할 시간이 마땅치 않아요. 예: 오늘 6시, 내일 7시 반, 30분 뒤처럼 말해줘도 돼요."
+            return "지금은 바로 제안할 시간이 마땅치 않아요. 그래도 오늘 6시, 내일 7시 반, 30분 뒤처럼 말해주면 바로 반영할게요."
 
-        lines = ["원하면 이런 시간으로도 다시 잡을 수 있어요."]
+        lines = ["원하면 이런 시간대로 다시 잡을 수 있어요."]
         for item in suggestions:
             end_at = item.start_at + duration
             lines.append(f"- {item.label}: {item.start_at:%m/%d %H:%M} - {end_at:%H:%M}")

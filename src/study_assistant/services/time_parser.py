@@ -24,17 +24,17 @@ class TimeParser:
             start_at = (now + timedelta(minutes=minutes)).replace(second=0, microsecond=0)
             return ParsedTimeExpression(start_at=start_at, label=f"{minutes}분 뒤")
 
-        hour_match = re.search(r"(?P<hour>\d{1,2})\s*시(?:\s*(?P<minute>\d{1,2})\s*분|(?P<half>반))?", normalized)
+        hour_match = re.search(r"(?P<hour>\d{1,2})\s*시(?:\s*(?P<minute>\d{1,2})\s*분?)?\s*(?P<half>반)?", normalized)
         if hour_match:
             start_at = self._resolve_explicit_time(normalized, now, hour_match)
             if start_at is not None:
                 return ParsedTimeExpression(start_at=start_at, label=self._build_label(normalized, start_at))
 
-        if any(keyword in normalized for keyword in ["오늘저녁", "오늘 저녁", "오늘밤", "오늘 밤"]):
+        if any(keyword in normalized for keyword in ["오늘저녁", "오늘 밤", "오늘밤"]):
             start_at = self._default_evening_anchor(now, day_offset=0)
             return ParsedTimeExpression(start_at=start_at, label="오늘 저녁")
 
-        if any(keyword in normalized for keyword in ["내일저녁", "내일 저녁", "내일밤", "내일 밤"]):
+        if any(keyword in normalized for keyword in ["내일저녁", "내일 밤", "내일밤"]):
             start_at = self._default_evening_anchor(now, day_offset=1)
             return ParsedTimeExpression(start_at=start_at, label="내일 저녁")
 
@@ -80,12 +80,11 @@ class TimeParser:
         if hour > 23 or minute > 59:
             return None
 
-        target_date = now.date() + timedelta(days=day_offset)
+        target_date = now.date() + timedelta(days=day_offset or 0)
         candidate = datetime.combine(target_date, time(hour, minute), tzinfo=self.timezone)
 
-        if day_offset is None:
-            if candidate <= now:
-                candidate = candidate + timedelta(days=1)
+        if day_offset is None and candidate <= now:
+            candidate = candidate + timedelta(days=1)
         return candidate
 
     def _resolve_day_offset(self, normalized: str) -> int | None:
@@ -108,7 +107,7 @@ class TimeParser:
         elif "오늘" in normalized:
             prefix = "오늘"
         else:
-            prefix = "다음 가능 시간"
+            prefix = "다음 가능한 시간"
         return f"{prefix} {start_at:%H:%M}"
 
     def _default_evening_anchor(self, now: datetime, day_offset: int) -> datetime:
