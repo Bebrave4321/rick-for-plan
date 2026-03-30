@@ -41,7 +41,7 @@ def test_expand_actions_prefers_explicit_target_task_ids_for_multiple_scope():
     result = brain._build_result(
         interpreted=interpreted,
         source="openai",
-        text="수학이랑 영어 둘 다 못 했어",
+        text="수학이랑 영어 둘 다 못했어",
         active_task=None,
         today_tasks=today_tasks,
         now=now,
@@ -73,3 +73,28 @@ def test_expand_actions_requests_clarification_when_active_task_target_is_unreso
     assert result.actions == []
     assert result.needs_clarification is True
     assert result.response_mode == "clarify"
+
+
+def test_expand_actions_uses_llm_clarification_message_when_provided():
+    brain = AssistantBrain(message_interpreter=DummyInterpreter())
+    now = datetime(2026, 3, 30, 20, 0)
+    interpreted = InterpretedMessage(
+        kind="unknown",
+        target_scope="none",
+        summary="Need clarification.",
+        confidence=0.31,
+        clarification_message="오늘 일정 전체를 다시 짤까요, 아니면 특정 과목만 옮길까요?",
+    )
+
+    result = brain._build_result(
+        interpreted=interpreted,
+        source="openai",
+        text="오늘은 좀 망했어",
+        active_task=None,
+        today_tasks=[],
+        now=now,
+    )
+
+    assert result.actions == []
+    assert result.needs_clarification is True
+    assert result.clarification_message == "오늘 일정 전체를 다시 짤까요, 아니면 특정 과목만 옮길까요?"

@@ -144,6 +144,7 @@ class InterpretedMessage(BaseModel):
     target_scope: Literal["active_task", "today", "multiple", "none"] = "none"
     summary: str = ""
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    clarification_message: str | None = None
     reschedule_minutes: int | None = None
     feedback_type: FeedbackKind = None
     target_task_ids: list[str] = Field(default_factory=list)

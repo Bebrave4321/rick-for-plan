@@ -71,7 +71,7 @@ class AssistantBrain:
 
         if not actions:
             needs_clarification = True
-            clarification_message = self._clarification_message(
+            clarification_message = interpreted.clarification_message or self._clarification_message(
                 interpreted=interpreted,
                 active_task=active_task,
             )

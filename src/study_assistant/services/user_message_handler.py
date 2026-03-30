@@ -82,9 +82,7 @@ class UserMessageHandler:
         )
 
         if brain_result.needs_clarification and not brain_result.actions:
-            clarification_text = brain_result.clarification_message or (
-                "말하려는 작업을 조금만 더 구체적으로 말해줄래요?"
-            )
+            clarification_text = brain_result.clarification_message or "원하는 작업을 조금만 더 구체적으로 말해줄래요?"
             await self.telegram_client.send_message(event.chat_id, clarification_text)
             await repo.append_conversation_turn(
                 daily_conversation,

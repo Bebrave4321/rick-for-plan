@@ -108,7 +108,9 @@ class OpenAIAssistantClient:
                             "You interpret short Telegram messages for a study assistant. "
                             "Return the most actionable intent, favoring concise and practical interpretations. "
                             "If the user refers to one or more specific tasks, include their IDs in target_task_ids "
-                            "and optionally their titles in mentioned_task_titles."
+                            "and optionally their titles in mentioned_task_titles. "
+                            "If the request is too ambiguous to act on safely, set kind to unknown or a low-confidence "
+                            "intent and provide a short clarification_message that asks only one follow-up question."
                         ),
                     },
                     {
@@ -228,6 +230,7 @@ class OpenAIAssistantClient:
                 },
                 "summary": {"type": "string"},
                 "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                "clarification_message": {"type": ["string", "null"]},
                 "reschedule_minutes": {"type": ["integer", "null"]},
                 "feedback_type": {
                     "type": ["string", "null"],
@@ -256,6 +259,7 @@ class OpenAIAssistantClient:
                 "target_scope",
                 "summary",
                 "confidence",
+                "clarification_message",
                 "reschedule_minutes",
                 "feedback_type",
                 "target_task_ids",
