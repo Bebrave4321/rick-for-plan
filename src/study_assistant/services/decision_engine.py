@@ -26,49 +26,50 @@ class DecisionEngine:
     def decide_reschedule(self, text: str, now: datetime) -> RescheduleDecision:
         normalized = text.strip().lower()
 
-        if any(keyword in normalized for keyword in ["취소", "그만", "안 할래", "안할래"]):
+        if any(keyword in normalized for keyword in ["취소", "그만", "안 할래", "안할래", "안 할게", "안할게"]):
             return RescheduleDecision(decision_type="cancel")
 
         if any(keyword in normalized for keyword in ["추천", "골라", "제안"]):
             return RescheduleDecision(
                 decision_type="suggest",
-                suggestions=self.time_parser.build_reschedule_suggestions(now),
+                suggestions=self.build_reschedule_suggestions(now),
             )
 
         parsed_time = self.time_parser.parse_reschedule_time(text, now)
-        if parsed_time is not None:
-            if parsed_time.start_at <= now:
-                return RescheduleDecision(
-                    decision_type="clarify",
-                    clarification_message=self._clarification_message(
-                        "지나간 시간처럼 보여서 다시 한 번만 확인할게요."
-                    ),
-                )
-            return RescheduleDecision(decision_type="reschedule", parsed_time=parsed_time)
+        if parsed_time is None:
+            return RescheduleDecision(
+                decision_type="clarify",
+                clarification_message=self._clarification_message(),
+            )
+
+        if parsed_time.start_at <= now:
+            return RescheduleDecision(
+                decision_type="clarify",
+                clarification_message="지나간 시간처럼 보여서 다시 한 번만 확인할게요. 언제로 옮길까요?",
+            )
 
         return RescheduleDecision(
-            decision_type="clarify",
-            clarification_message=self._clarification_message(),
+            decision_type="reschedule",
+            parsed_time=parsed_time,
         )
-
-    def suggestion_text(self, suggestions: list[ParsedTimeExpression], duration: timedelta) -> str:
-        if not suggestions:
-            return "지금은 바로 제안할 시간이 마땅치 않아요. 그래도 오늘 6시, 내일 7시 반, 30분 뒤처럼 말해주면 바로 반영할게요."
-
-        lines = ["원하면 이런 시간대로 다시 잡을 수 있어요."]
-        for item in suggestions:
-            end_at = item.start_at + duration
-            lines.append(f"- {item.label}: {item.start_at:%m/%d %H:%M} - {end_at:%H:%M}")
-        lines.append("원하는 시간을 말로 답장해도 바로 반영할게요.")
-        return "\n".join(lines)
 
     def build_reschedule_suggestions(self, now: datetime) -> list[ParsedTimeExpression]:
         return self.time_parser.build_reschedule_suggestions(now)
 
-    def _clarification_message(self, lead_text: str | None = None) -> str:
-        lines = []
-        if lead_text:
-            lines.append(lead_text)
-        lines.append("언제로 다시 잡을까요?")
-        lines.append("예: 오늘 6시, 내일 7시 반, 30분 뒤")
+    def suggestion_text(self, suggestions: list[ParsedTimeExpression], duration: timedelta) -> str:
+        lines = ["이렇게 옮겨볼 수 있어요."]
+        if duration:
+            duration_minutes = int(duration.total_seconds() // 60)
+            lines.append(f"기준 길이: {duration_minutes}분")
+        for item in suggestions:
+            end_at = item.start_at + duration
+            lines.append(f"- {item.label}: {item.start_at:%m/%d %H:%M} - {end_at:%H:%M}")
         return "\n".join(lines)
+
+    def _clarification_message(self) -> str:
+        return "\n".join(
+            [
+                "언제로 다시 잡을까요?",
+                "예: 오늘 6시, 내일 7시 반, 30분 뒤",
+            ]
+        )

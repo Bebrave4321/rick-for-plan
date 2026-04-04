@@ -74,12 +74,13 @@ async def test_generate_weekly_plan_uses_json_schema_response_format():
 
 
 @pytest.mark.asyncio
-async def test_interpret_message_includes_recent_dialogue_context():
+async def test_interpret_message_includes_recent_and_derived_dialogue_context():
     payload = {
         "kind": "postpone_10",
         "target_scope": "active_task",
         "summary": "Delay by ten minutes",
         "confidence": 0.9,
+        "clarification_message": None,
         "reschedule_minutes": 10,
         "feedback_type": None,
         "target_task_ids": [],
@@ -91,16 +92,27 @@ async def test_interpret_message_includes_recent_dialogue_context():
     conversation = DummyConversation()
 
     interpreted = await client.interpret_message(
-        text="10분 미뤄줘",
+        text="Delay it by ten minutes.",
         user=DummyUser(),
         daily_conversation=conversation,
         active_task=None,
         today_tasks=[],
         conversation_summary="User prefers practical replies.",
         recent_dialogue=[
-            {"role": "user", "text": "오늘은 좀 힘들어", "occurred_at": "2026-03-27T17:40:00+09:00"},
-            {"role": "assistant", "text": "괜찮아요. 필요한 만큼만 조정해볼게요.", "occurred_at": "2026-03-27T17:40:02+09:00"},
+            {"role": "user", "text": "I am running late.", "occurred_at": "2026-03-27T17:40:00+09:00"},
+            {
+                "role": "assistant",
+                "text": "No problem. Tell me how you want to adjust it.",
+                "occurred_at": "2026-03-27T17:40:02+09:00",
+            },
         ],
+        last_user_turn={"role": "user", "text": "I am running late.", "occurred_at": "2026-03-27T17:40:00+09:00"},
+        last_assistant_turn={
+            "role": "assistant",
+            "text": "No problem. Tell me how you want to adjust it.",
+            "occurred_at": "2026-03-27T17:40:02+09:00",
+        },
+        active_prompt_kind="reschedule",
         now=datetime(2026, 3, 27, 18, 0),
     )
 
@@ -115,8 +127,12 @@ async def test_interpret_message_includes_recent_dialogue_context():
     assert len(prompt["recent_dialogue"]) == 2
     assert prompt["current_date"] == "2026-03-27"
     assert prompt["current_time"] == "2026-03-27T18:00:00"
+    assert prompt["last_user_turn"]["text"] == "I am running late."
+    assert prompt["last_assistant_turn"]["text"] == "No problem. Tell me how you want to adjust it."
+    assert prompt["active_prompt_kind"] == "reschedule"
     developer_prompt = call["input"][0]["content"]
-    assert "conversation_summary and recent_dialogue" in developer_prompt
+    assert "conversation_summary, recent_dialogue, last_user_turn, last_assistant_turn, and" in developer_prompt
+    assert "active_prompt_kind" in developer_prompt
     assert "target_scope='multiple'" in developer_prompt
-    assert "오늘 6시" in developer_prompt
+    assert "today 6 PM" not in developer_prompt  # sanity check that this test only inspects context additions
     assert conversation.last_response_id == "resp_test"

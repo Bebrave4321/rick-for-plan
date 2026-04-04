@@ -28,6 +28,9 @@ class AssistantBrain:
         today_tasks,
         conversation_summary: str | None,
         recent_dialogue: list[dict[str, str]],
+        last_user_turn: dict[str, str] | None,
+        last_assistant_turn: dict[str, str] | None,
+        active_prompt_kind: str | None,
         now: datetime,
     ) -> BrainResult:
         interpreted, source = await self.message_interpreter.interpret(
@@ -38,6 +41,9 @@ class AssistantBrain:
             today_tasks=today_tasks,
             conversation_summary=conversation_summary,
             recent_dialogue=recent_dialogue,
+            last_user_turn=last_user_turn,
+            last_assistant_turn=last_assistant_turn,
+            active_prompt_kind=active_prompt_kind,
             now=now,
         )
         return self._build_result(

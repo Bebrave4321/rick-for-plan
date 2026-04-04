@@ -78,6 +78,9 @@ class UserMessageHandler:
             today_tasks=today_tasks,
             conversation_summary=context.conversation_summary,
             recent_dialogue=context.recent_dialogue,
+            last_user_turn=context.last_user_turn,
+            last_assistant_turn=context.last_assistant_turn,
+            active_prompt_kind=context.active_prompt_kind,
             now=now,
         )
 

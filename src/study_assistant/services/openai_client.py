@@ -83,6 +83,9 @@ class OpenAIAssistantClient:
         today_tasks,
         conversation_summary: str | None,
         recent_dialogue: list[dict[str, str]],
+        last_user_turn: dict[str, str] | None,
+        last_assistant_turn: dict[str, str] | None,
+        active_prompt_kind: str | None,
         now,
     ) -> InterpretedMessage | None:
         if not self.client:
@@ -97,6 +100,9 @@ class OpenAIAssistantClient:
             "today_tasks": [self._serialize_task(task) for task in today_tasks],
             "conversation_summary": conversation_summary,
             "recent_dialogue": recent_dialogue[-6:],
+            "last_user_turn": last_user_turn,
+            "last_assistant_turn": last_assistant_turn,
+            "active_prompt_kind": active_prompt_kind,
         }
 
         try:
@@ -108,8 +114,10 @@ class OpenAIAssistantClient:
                         "content": (
                             "You interpret short Telegram messages for a study assistant. "
                             "Return the most actionable intent, favoring concise and practical interpretations. "
-                            "Use conversation_summary and recent_dialogue to resolve follow-up phrasing and references like "
-                            "'그거', '이것도', or short reschedule replies. "
+                            "Use conversation_summary, recent_dialogue, last_user_turn, last_assistant_turn, and "
+                            "active_prompt_kind to resolve follow-up phrasing and understand the latest assistant prompt. "
+                            "This includes references like '그거', '이것도', and short replies to check-in, completion, "
+                            "or reschedule messages. "
                             "If the user is replying to an active task or an unfinished prompt, prefer that task unless the "
                             "message clearly points to another task. "
                             "If the user refers to one or more specific tasks, include their IDs in target_task_ids and "

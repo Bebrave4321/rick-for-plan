@@ -16,6 +16,9 @@ class AssistantContext:
     today_tasks: list[object] = field(default_factory=list)
     conversation_summary: str | None = None
     recent_dialogue: list[dict[str, str]] = field(default_factory=list)
+    last_user_turn: dict[str, str] | None = None
+    last_assistant_turn: dict[str, str] | None = None
+    active_prompt_kind: str | None = None
 
 
 class ContextAssembler:
@@ -48,6 +51,7 @@ class ContextAssembler:
         for task in today_tasks:
             self._localize_task_datetimes(task)
         today_tasks = await self._merge_recent_overdue_tasks(repo, user_id=user.id, now=now, today_tasks=today_tasks)
+        today_tasks = await self._merge_nearby_upcoming_tasks(repo, user_id=user.id, now=now, today_tasks=today_tasks)
 
         return AssistantContext(
             now=now,
@@ -57,6 +61,9 @@ class ContextAssembler:
             today_tasks=today_tasks,
             conversation_summary=conversation_summary,
             recent_dialogue=recent_dialogue,
+            last_user_turn=self._last_turn_for_role(recent_dialogue, "user"),
+            last_assistant_turn=self._last_turn_for_role(recent_dialogue, "assistant"),
+            active_prompt_kind=self._active_prompt_kind(active_task),
         )
 
     async def build_button_context(
@@ -98,6 +105,9 @@ class ContextAssembler:
             active_task=task,
             conversation_summary=conversation_summary,
             recent_dialogue=recent_dialogue,
+            last_user_turn=self._last_turn_for_role(recent_dialogue, "user"),
+            last_assistant_turn=self._last_turn_for_role(recent_dialogue, "assistant"),
+            active_prompt_kind=self._active_prompt_kind(task),
         )
 
     async def _merge_recent_overdue_tasks(self, repo, *, user_id: str, now: datetime, today_tasks: list[object]) -> list[object]:
@@ -115,6 +125,24 @@ class ContextAssembler:
             if task.status in FINAL_TASK_STATUSES:
                 continue
             if task.end_at > now:
+                continue
+            merged_by_id.setdefault(task.id, task)
+
+        return sorted(merged_by_id.values(), key=lambda task: task.start_at)
+
+    async def _merge_nearby_upcoming_tasks(self, repo, *, user_id: str, now: datetime, today_tasks: list[object]) -> list[object]:
+        next_day_start = datetime.combine(now.date() + timedelta(days=1), time.min, tzinfo=self.timezone)
+        nearby_window_end = next_day_start + timedelta(hours=6)
+        nearby_tasks = await repo.list_tasks_between(
+            user_id,
+            start_at=next_day_start,
+            end_at=nearby_window_end,
+        )
+
+        merged_by_id = {task.id: task for task in today_tasks}
+        for task in nearby_tasks:
+            self._localize_task_datetimes(task)
+            if task.status in FINAL_TASK_STATUSES:
                 continue
             merged_by_id.setdefault(task.id, task)
 
@@ -139,3 +167,14 @@ class ContextAssembler:
             value = getattr(task, field_name, None)
             if value is not None and value.tzinfo is None:
                 setattr(task, field_name, value.replace(tzinfo=self.timezone))
+
+    def _last_turn_for_role(self, recent_dialogue: list[dict[str, str]], role: str) -> dict[str, str] | None:
+        for turn in reversed(recent_dialogue):
+            if turn.get("role") == role:
+                return turn
+        return None
+
+    def _active_prompt_kind(self, task) -> str | None:
+        if task is None or getattr(task, "pending_prompt_type", None) is None:
+            return None
+        return task.pending_prompt_type.value

@@ -19,6 +19,9 @@ class MessageInterpreterService:
         today_tasks,
         conversation_summary: str | None,
         recent_dialogue: list[dict[str, str]],
+        last_user_turn: dict[str, str] | None,
+        last_assistant_turn: dict[str, str] | None,
+        active_prompt_kind: str | None,
         now: datetime,
     ) -> tuple[InterpretedMessage, str]:
         if self.openai_client.enabled:
@@ -30,6 +33,9 @@ class MessageInterpreterService:
                 today_tasks=today_tasks,
                 conversation_summary=conversation_summary,
                 recent_dialogue=recent_dialogue,
+                last_user_turn=last_user_turn,
+                last_assistant_turn=last_assistant_turn,
+                active_prompt_kind=active_prompt_kind,
                 now=now,
             )
             if interpreted is not None and interpreted.confidence >= 0.45:
@@ -58,7 +64,7 @@ class MessageInterpreterService:
             )
 
         if "오늘" in normalized and any(
-            keyword in normalized for keyword in ["정리", "재배치", "다시", "망했", "귀찮", "못하겠", "그냥"]
+            keyword in normalized for keyword in ["정리", "재배치", "다시", "망했", "꼬였", "못하겠", "그냥"]
         ):
             return InterpretedMessage(
                 kind="replan_today",
@@ -94,7 +100,7 @@ class MessageInterpreterService:
                 mentioned_task_titles=matched_titles,
             )
 
-        if any(keyword in normalized for keyword in ["완료", "끝났", "끝냄", "다했", "끝냈"]):
+        if any(keyword in normalized for keyword in ["완료", "끝났", "끝냄", "끝냈", "다했"]):
             return InterpretedMessage(
                 kind="mark_completed",
                 target_scope="active_task" if active_task or matched_titles else "none",
@@ -123,7 +129,7 @@ class MessageInterpreterService:
                 mentioned_task_titles=matched_titles,
             )
 
-        if any(keyword in normalized for keyword in ["취소", "그만", "안할래", "안 할래"]):
+        if any(keyword in normalized for keyword in ["취소", "그만", "안할래", "안할게"]):
             return InterpretedMessage(
                 kind="cancel_task",
                 target_scope="active_task" if active_task or matched_titles else "none",
@@ -132,7 +138,7 @@ class MessageInterpreterService:
                 mentioned_task_titles=matched_titles,
             )
 
-        if "10분" in normalized and any(keyword in normalized for keyword in ["미뤄", "미루", "늦춰", "바꿔"]):
+        if "10분" in normalized and any(keyword in normalized for keyword in ["미뤄", "미루", "옮겨", "바꿔"]):
             return InterpretedMessage(
                 kind="postpone_10",
                 target_scope="active_task" if active_task or matched_titles else "none",
@@ -142,7 +148,7 @@ class MessageInterpreterService:
                 mentioned_task_titles=matched_titles,
             )
 
-        if any(keyword in normalized for keyword in ["미뤄", "미루", "늦춰", "바꿔"]):
+        if any(keyword in normalized for keyword in ["미뤄", "미루", "옮겨", "바꿔"]):
             return InterpretedMessage(
                 kind="postpone_custom",
                 target_scope="active_task" if active_task or matched_titles else "none",
@@ -168,8 +174,8 @@ class MessageInterpreterService:
         )
 
     def _looks_like_specific_reschedule(self, normalized: str) -> bool:
-        move_keywords = ["옮겨", "바꿔", "바꾸", "미뤄", "미루", "넣어", "잡기"]
-        time_keywords = ["오늘", "내일", "저녁", "오전", "오후", "밤", "분뒤", "시간"]
+        move_keywords = ["옮겨", "바꿔", "바꾸", "미뤄", "미루", "밀어", "당겨"]
+        time_keywords = ["오늘", "내일", "저녁", "오전", "오후", "밤", "분뒤", "시간뒤"]
         has_move = any(keyword in normalized for keyword in move_keywords)
         has_time = bool(re.search(r"\d{1,2}시", normalized)) or any(keyword in normalized for keyword in time_keywords)
         return has_move and has_time
@@ -178,10 +184,7 @@ class MessageInterpreterService:
         if len(matched_titles) >= 2:
             return True
 
-        return any(
-            keyword in normalized
-            for keyword in ["둘다", "둘다못했", "모두", "전부", "전체", "다못", "다못했", "다못했네"]
-        )
+        return any(keyword in normalized for keyword in ["둘다", "둘다못했", "모두", "전부", "다못", "다못했", "다못했네"])
 
     def _extract_mentioned_task_titles(self, normalized: str, today_tasks) -> list[str]:
         matched_titles: list[str] = []

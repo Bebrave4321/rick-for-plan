@@ -24,27 +24,29 @@ class TimeParser:
             start_at = (now + timedelta(minutes=minutes)).replace(second=0, microsecond=0)
             return ParsedTimeExpression(start_at=start_at, label=f"{minutes}분 뒤")
 
-        hour_match = re.search(r"(?P<hour>\d{1,2})\s*시(?:\s*(?P<minute>\d{1,2})\s*분?)?\s*(?P<half>반)?", normalized)
-        if hour_match:
-            start_at = self._resolve_explicit_time(normalized, now, hour_match)
-            if start_at is not None:
-                return ParsedTimeExpression(start_at=start_at, label=self._build_label(normalized, start_at))
+        explicit_match = re.search(
+            r"(?P<hour>\d{1,2})\s*시(?:\s*(?P<minute>\d{1,2})\s*분|\s*(?P<half>반))?",
+            normalized,
+        )
+        if explicit_match:
+            resolved = self._resolve_explicit_time(normalized, now, explicit_match)
+            if resolved is not None:
+                return ParsedTimeExpression(
+                    start_at=resolved,
+                    label=self._build_explicit_label(normalized, resolved),
+                )
 
-        if any(keyword in normalized for keyword in ["오늘저녁", "오늘 밤", "오늘밤"]):
-            start_at = self._default_evening_anchor(now, day_offset=0)
+        if "오늘 저녁" in normalized or "오늘 밤" in normalized:
+            start_at = self._evening_anchor(now, day_offset=0)
             return ParsedTimeExpression(start_at=start_at, label="오늘 저녁")
 
-        if any(keyword in normalized for keyword in ["내일저녁", "내일 밤", "내일밤"]):
-            start_at = self._default_evening_anchor(now, day_offset=1)
+        if "내일 저녁" in normalized or "내일 밤" in normalized:
+            start_at = self._evening_anchor(now, day_offset=1)
             return ParsedTimeExpression(start_at=start_at, label="내일 저녁")
 
         if "내일" in normalized:
-            start_at = datetime.combine(
-                now.date() + timedelta(days=1),
-                time(19, 0),
-                tzinfo=self.timezone,
-            )
-            return ParsedTimeExpression(start_at=start_at, label="내일 저녁")
+            start_at = datetime.combine(now.date() + timedelta(days=1), time(19, 0), tzinfo=self.timezone)
+            return ParsedTimeExpression(start_at=start_at, label="내일 19:00")
 
         return None
 
@@ -52,14 +54,14 @@ class TimeParser:
         suggestions: list[ParsedTimeExpression] = []
         seen: set[datetime] = set()
 
-        for label, start_at in [
-            ("오늘 저녁", self._default_evening_anchor(now, day_offset=0)),
+        candidates = [
+            ("오늘 저녁", self._evening_anchor(now, day_offset=0)),
             ("오늘 조금 늦게", self._later_today_anchor(now)),
-            ("내일 저녁", self._default_evening_anchor(now, day_offset=1)),
-        ]:
-            if start_at <= now:
-                continue
-            if start_at in seen:
+            ("내일 저녁", self._evening_anchor(now, day_offset=1)),
+        ]
+
+        for label, start_at in candidates:
+            if start_at <= now or start_at in seen:
                 continue
             suggestions.append(ParsedTimeExpression(start_at=start_at, label=label))
             seen.add(start_at)
@@ -69,8 +71,8 @@ class TimeParser:
     def _resolve_explicit_time(self, normalized: str, now: datetime, match: re.Match[str]) -> datetime | None:
         hour = int(match.group("hour"))
         minute = 30 if match.group("half") else int(match.group("minute") or 0)
-        day_offset = self._resolve_day_offset(normalized)
         meridiem = self._resolve_meridiem(normalized)
+        day_offset = self._resolve_day_offset(normalized)
 
         if meridiem == "pm" and hour < 12:
             hour += 12
@@ -97,11 +99,11 @@ class TimeParser:
     def _resolve_meridiem(self, normalized: str) -> str | None:
         if any(keyword in normalized for keyword in ["오후", "저녁", "밤"]):
             return "pm"
-        if any(keyword in normalized for keyword in ["오전", "아침", "새벽"]):
+        if any(keyword in normalized for keyword in ["오전", "새벽", "아침"]):
             return "am"
         return None
 
-    def _build_label(self, normalized: str, start_at: datetime) -> str:
+    def _build_explicit_label(self, normalized: str, start_at: datetime) -> str:
         if "내일" in normalized:
             prefix = "내일"
         elif "오늘" in normalized:
@@ -110,7 +112,7 @@ class TimeParser:
             prefix = "다음 가능한 시간"
         return f"{prefix} {start_at:%H:%M}"
 
-    def _default_evening_anchor(self, now: datetime, day_offset: int) -> datetime:
+    def _evening_anchor(self, now: datetime, *, day_offset: int) -> datetime:
         target_date = now.date() + timedelta(days=day_offset)
         anchor = datetime.combine(target_date, time(19, 0), tzinfo=self.timezone)
         if day_offset == 0 and anchor <= now:
