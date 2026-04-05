@@ -145,6 +145,9 @@ class TextActionHandler:
     ) -> bool:
         decision = self.decision_engine.decide_reschedule(raw_text, now)
 
+        if decision.decision_type == "no_match":
+            return False
+
         if decision.decision_type == "clarify":
             await self._send_and_log(
                 repo,
@@ -626,6 +629,7 @@ class TextActionHandler:
         *,
         repo,
         user,
+        active_task,
         today_tasks,
         now: datetime,
         daily_conversation=None,
@@ -636,6 +640,8 @@ class TextActionHandler:
             for task in today_tasks
             if task.status not in FINAL_TASK_STATUSES and task.end_at >= now - timedelta(hours=2)
         ]
+        if active_task is not None and active_task.id not in {task.id for task in unfinished}:
+            unfinished.append(active_task)
         await self.replan_multiple_tasks(repo, unfinished, now=now)
         await self._send_and_log(
             repo,

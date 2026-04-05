@@ -335,6 +335,44 @@ async def test_reschedule_prompt_clarifies_ambiguous_free_text_once():
 
 
 @pytest.mark.asyncio
+async def test_reschedule_prompt_allows_non_time_message_to_fall_back_to_brain():
+    service, telegram_client, session_factory, engine, db_path = await build_db_service(".assistant-reschedule-brain-fallback.db")
+
+    try:
+        await service.process_text_message(
+            telegram_user_id=10041,
+            chat_id=10041,
+            display_name="LG",
+            text="/testcomplete",
+        )
+        await service.process_text_message(
+            telegram_user_id=10041,
+            chat_id=10041,
+            display_name="LG",
+            text="못 했어요",
+        )
+
+        task = await load_single_task(session_factory)
+        assert task.status == TaskStatus.MISSED
+        assert task.pending_prompt_type == PendingPromptType.RESCHEDULE
+
+        await service.process_text_message(
+            telegram_user_id=10041,
+            chat_id=10041,
+            display_name="LG",
+            text="오늘 일정 다시 짜줘",
+        )
+
+        task = await load_single_task(session_factory)
+        assert task.status == TaskStatus.RESCHEDULED
+        assert task.pending_prompt_type is None
+    finally:
+        await engine.dispose()
+        if db_path.exists():
+            db_path.unlink()
+
+
+@pytest.mark.asyncio
 async def test_direct_free_text_reschedule_moves_active_task_to_specific_time():
     service, telegram_client, session_factory, engine, db_path = await build_db_service(".assistant-direct-reschedule.db")
 
