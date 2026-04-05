@@ -409,34 +409,13 @@ class StudyAssistantService:
             await session.commit()
 
     async def _handle_button_action_event(self, event: InternalEvent) -> None:
-        parsed = self.button_action_handler.parse_callback_data(event.callback_data)
-        if parsed is None:
-            await self.telegram_client.send_message(event.chat_id, "버튼 정보를 이해하지 못했어요.")
-            return
-        task_id, action = parsed
-
         async with self.session_factory() as session:
             repo = AssistantRepository(session)
-            context = await self.context_assembler.build_button_context(
-                repo,
-                telegram_user_id=event.telegram_user_id,
-                task_id=task_id,
-                now=self.now(),
-            )
-            user = context.user
-            task = context.active_task
-            if user is None or task is None:
-                await self.telegram_client.send_message(event.chat_id, "대상 일정을 찾지 못했어요.")
-                return
-
-            await self.button_action_handler.handle(
+            await self.button_action_handler.handle_event(
                 repo=repo,
-                user=user,
-                task=task,
-                action=action,
-                chat_id=event.chat_id,
-                now=context.now,
-                daily_conversation=context.daily_conversation,
+                event=event,
+                context_assembler=self.context_assembler,
+                now=self.now(),
             )
             await session.commit()
 

@@ -216,6 +216,44 @@ async def test_delay10_suppresses_duplicate_prep_reminder_for_immediate_reschedu
 
 
 @pytest.mark.asyncio
+async def test_invalid_callback_query_returns_friendly_error():
+    service, telegram_client, session_factory, engine, db_path = await build_db_service(".assistant-invalid-callback.db")
+
+    try:
+        await service.process_callback_query(
+            telegram_user_id=10021,
+            chat_id=10021,
+            callback_data="not-a-valid-callback",
+        )
+
+        assert telegram_client.messages[-1]["text"] == "버튼 정보를 이해하지 못했어요."
+    finally:
+        await engine.dispose()
+        if db_path.exists():
+            db_path.unlink()
+
+
+@pytest.mark.asyncio
+async def test_missing_task_callback_query_returns_friendly_error():
+    service, telegram_client, session_factory, engine, db_path = await build_db_service(".assistant-missing-callback-task.db")
+
+    try:
+        await create_user(service, 10022)
+
+        await service.process_callback_query(
+            telegram_user_id=10022,
+            chat_id=10022,
+            callback_data="task:missing-task-id:done",
+        )
+
+        assert telegram_client.messages[-1]["text"] == "대상 일정을 찾지 못했어요."
+    finally:
+        await engine.dispose()
+        if db_path.exists():
+            db_path.unlink()
+
+
+@pytest.mark.asyncio
 async def test_reschedule_prompt_accepts_future_free_text_and_confirms_exact_time():
     service, telegram_client, session_factory, engine, db_path = await build_db_service(".assistant-reschedule-text.db")
 

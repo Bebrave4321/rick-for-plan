@@ -21,6 +21,45 @@ class ButtonActionHandler:
         self.text_action_handler = text_action_handler
         self.decision_engine = decision_engine
 
+    async def handle_event(
+        self,
+        *,
+        repo,
+        event,
+        context_assembler,
+        now: datetime,
+    ) -> None:
+        if event.chat_id is None:
+            return
+
+        parsed = self.parse_callback_data(event.callback_data)
+        if parsed is None:
+            await self.telegram_client.send_message(event.chat_id, "버튼 정보를 이해하지 못했어요.")
+            return
+
+        task_id, action = parsed
+        context = await context_assembler.build_button_context(
+            repo,
+            telegram_user_id=event.telegram_user_id,
+            task_id=task_id,
+            now=now,
+        )
+        user = context.user
+        task = context.active_task
+        if user is None or task is None:
+            await self.telegram_client.send_message(event.chat_id, "대상 일정을 찾지 못했어요.")
+            return
+
+        await self.handle(
+            repo=repo,
+            user=user,
+            task=task,
+            action=action,
+            chat_id=event.chat_id,
+            now=context.now,
+            daily_conversation=context.daily_conversation,
+        )
+
     def parse_callback_data(self, callback_data: str | None) -> tuple[str, str] | None:
         try:
             _, task_id, action = (callback_data or "").split(":", 2)
