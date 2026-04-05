@@ -31,7 +31,7 @@ class ResponseComposer:
         return (
             "공부 일정 비서예요.\n"
             "- /plan 으로 주간 계획 안내를 볼 수 있어요.\n"
-            "- /id 로 내 텔레그램 ID를 확인할 수 있어요.\n"
+            "- /id 로 텔레그램 ID를 확인할 수 있어요.\n"
             "- 시작 전 알림, 시작 확인, 종료 확인, 재배치를 도와드릴게요."
         )
 
@@ -46,7 +46,7 @@ class ResponseComposer:
         )
 
     def weekly_planning_prompt(self) -> str:
-        return "이번 주 비가용 시간과 공부 목표를 보내주세요. /plan 을 보내면 입력 형식을 안내할게요."
+        return "이번 주 비가용 시간과 공부 목표를 보내주세요. /plan 을 보내면 입력 형식을 안내해드릴게요."
 
     def weekly_plan_message(self, draft) -> str:
         lines = ["이번 주 계획 초안을 만들었어요.", draft.summary, ""]
@@ -74,7 +74,7 @@ class ResponseComposer:
             schedule = ", ".join(f"{task.start_at:%H:%M} {task.title}" for task in today_tasks[:5])
             lines.append(f"오늘 일정: {schedule}")
         if not lines:
-            lines.append("어제 기록된 일정이 없었어요. 오늘 일정부터 같이 정리해볼까요?")
+            lines.append("어제 기록된 일정이 없었어요. 오늘 일정을 같이 정리해볼까요?")
         return "\n".join(lines)
 
     def prep_reminder(self, task) -> str:
@@ -87,7 +87,7 @@ class ResponseComposer:
         return f"'{task.title}' 아직 시작 못 했나요? 지금 시작 가능할까요?"
 
     def progress_prompt(self, task) -> str:
-        return f"'{task.title}' 진행은 어때요? 너무 버겁진 않나요?"
+        return f"'{task.title}' 진행은 어때요? 너무 벅차진 않나요?"
 
     def completion_prompt(self, task) -> str:
         return f"빠르게 확인할게요. '{task.title}' 마무리됐어요?"

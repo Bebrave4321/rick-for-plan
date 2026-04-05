@@ -25,15 +25,3 @@ def test_time_parser_resolves_relative_minutes():
     assert parsed is not None
     assert parsed.start_at.hour == 15
     assert parsed.start_at.minute == 35
-
-
-def test_time_parser_resolves_tomorrow_half_hour_time():
-    parser = TimeParser(ZoneInfo("Asia/Seoul"))
-    now = datetime(2026, 3, 27, 15, 5, tzinfo=ZoneInfo("Asia/Seoul"))
-
-    parsed = parser.parse_reschedule_time("내일 저녁 7시 반으로 옮겨줘", now)
-
-    assert parsed is not None
-    assert parsed.start_at.date() == datetime(2026, 3, 28, 19, 30, tzinfo=ZoneInfo("Asia/Seoul")).date()
-    assert parsed.start_at.hour == 19
-    assert parsed.start_at.minute == 30

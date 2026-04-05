@@ -4,7 +4,7 @@ import json
 from datetime import date, datetime, time, timedelta
 from typing import Sequence
 
-from sqlalchemy import delete, desc, exists, select
+from sqlalchemy import delete, desc, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from study_assistant.models.entities import (
@@ -280,8 +280,26 @@ class AssistantRepository:
             .join(StudyTask, StudyTask.id == TaskChangeLog.task_id)
             .where(
                 StudyTask.user_id == user_id,
-                TaskChangeLog.created_at >= start_at,
-                TaskChangeLog.created_at < end_at,
+                or_(
+                    (
+                        (TaskChangeLog.created_at >= start_at)
+                        & (TaskChangeLog.created_at < end_at)
+                    ),
+                    (
+                        (TaskChangeLog.old_start_at.is_not(None))
+                        & (TaskChangeLog.old_start_at >= start_at)
+                        & (TaskChangeLog.old_start_at < end_at)
+                    ),
+                    (
+                        (TaskChangeLog.new_start_at.is_not(None))
+                        & (TaskChangeLog.new_start_at >= start_at)
+                        & (TaskChangeLog.new_start_at < end_at)
+                    ),
+                    (
+                        (StudyTask.start_at >= start_at)
+                        & (StudyTask.start_at < end_at)
+                    ),
+                ),
             )
             .order_by(TaskChangeLog.created_at.asc())
         )

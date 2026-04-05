@@ -171,7 +171,7 @@ class ButtonActionHandler:
                 interpreted_payload={"action": action},
                 result_status=TaskStatus.PARTIAL,
                 feedback_type=FeedbackType.DID_NOT_FINISH,
-                lead_text=f"좋아요. '{task.title}'은 일부만 한 걸로 기록했어요. 남은 분량을 다시 잡을까요?",
+                lead_text=f"좋아요. '{task.title}'은 일부 한 것으로 기록했어요. 남은 분량은 다시 잡을까요?",
                 chat_id=target_chat_id,
                 daily_conversation=daily_conversation,
                 now=now,
