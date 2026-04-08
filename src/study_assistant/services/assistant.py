@@ -20,6 +20,7 @@ from study_assistant.services.button_action_handler import ButtonActionHandler
 from study_assistant.services.command_handler import CommandHandler
 from study_assistant.services.context_assembler import ContextAssembler
 from study_assistant.services.decision_engine import DecisionEngine
+from study_assistant.services.due_scan_service import DueScanService
 from study_assistant.services.input_handler import InputHandler
 from study_assistant.services.internal_events import InternalEvent
 from study_assistant.services.response_composer import ResponseComposer
@@ -57,6 +58,7 @@ class StudyAssistantService:
         scheduler_event_handler: SchedulerEventHandler | None = None,
         brain_result_handler: BrainResultHandler | None = None,
         reschedule_followup_handler: RescheduleFollowupHandler | None = None,
+        due_scan_service: DueScanService | None = None,
     ):
         self.settings = settings
         self.session_factory = session_factory
@@ -108,6 +110,12 @@ class StudyAssistantService:
             task_executor=self.task_executor,
             response_composer=self.response_composer,
             telegram_client=telegram_client,
+        )
+        self.due_scan_service = due_scan_service or DueScanService(
+            settings=settings,
+            session_factory=session_factory,
+            input_handler=self.input_handler,
+            event_processor=self._handle_internal_event,
         )
 
     async def close(self) -> None:
@@ -220,86 +228,7 @@ class StudyAssistantService:
             )
 
     async def run_due_scan(self) -> dict:
-        now = self.now()
-        due_events: list[InternalEvent] = []
-        async with self.session_factory() as session:
-            repo = AssistantRepository(session)
-            tasks = await repo.list_due_tasks(now)
-            users = {user.id: user for user in await repo.list_users()}
-
-            for task in tasks:
-                self._localize_task_datetimes(task)
-                user = users.get(task.user_id)
-                if user is None:
-                    continue
-                duration = task.end_at - task.start_at
-
-                if task.prep_reminder_sent_at is None and now >= task.start_at - timedelta(minutes=10):
-                    due_events.append(
-                        self.input_handler.from_scheduler_trigger(
-                            telegram_user_id=user.telegram_user_id,
-                            chat_id=user.telegram_chat_id,
-                            task_id=task.id,
-                            prompt_kind="prep",
-                            occurred_at=now,
-                        )
-                    )
-
-                if task.checkin_sent_at is None and now >= task.start_at:
-                    due_events.append(
-                        self.input_handler.from_scheduler_trigger(
-                            telegram_user_id=user.telegram_user_id,
-                            chat_id=user.telegram_chat_id,
-                            task_id=task.id,
-                            prompt_kind="checkin",
-                            occurred_at=now,
-                        )
-                    )
-
-                if (
-                    task.checkin_sent_at is not None
-                    and task.recheck_sent_at is None
-                    and task.status == TaskStatus.CHECKIN_PENDING
-                    and now >= task.checkin_sent_at + timedelta(minutes=10)
-                ):
-                    due_events.append(
-                        self.input_handler.from_scheduler_trigger(
-                            telegram_user_id=user.telegram_user_id,
-                            chat_id=user.telegram_chat_id,
-                            task_id=task.id,
-                            prompt_kind="recheck",
-                            occurred_at=now,
-                        )
-                    )
-
-                if duration >= timedelta(hours=1) and task.status == TaskStatus.IN_PROGRESS and self._needs_progress_check(task, now):
-                    due_events.append(
-                        self.input_handler.from_scheduler_trigger(
-                            telegram_user_id=user.telegram_user_id,
-                            chat_id=user.telegram_chat_id,
-                            task_id=task.id,
-                            prompt_kind="progress",
-                            occurred_at=now,
-                        )
-                    )
-
-                if task.completion_prompt_sent_at is None and now >= task.end_at:
-                    due_events.append(
-                        self.input_handler.from_scheduler_trigger(
-                            telegram_user_id=user.telegram_user_id,
-                            chat_id=user.telegram_chat_id,
-                            task_id=task.id,
-                            prompt_kind="completion",
-                            occurred_at=now,
-                        )
-                    )
-
-        sent_count = 0
-        for event in due_events:
-            if await self._handle_internal_event(event):
-                sent_count += 1
-
-        return {"sent_count": sent_count, "checked_at": now.isoformat()}
+        return await self.due_scan_service.run(now=self.now())
 
     async def send_daily_summaries(self) -> dict:
         today = self.now().date()
@@ -442,16 +371,13 @@ class StudyAssistantService:
                 await session.commit()
             return handled
 
-    def _needs_progress_check(self, task, now: datetime) -> bool:
-        self._localize_task_datetimes(task)
-        if task.last_progress_check_at is None:
-            return now >= task.start_at + timedelta(hours=1)
-        return now >= task.last_progress_check_at + timedelta(hours=1) and now < task.end_at
-
     def _retention_week_start(self, today: date) -> date:
         current_week_start = today - timedelta(days=today.weekday())
         weeks_to_keep = max(self.settings.data_retention_weeks - 1, 0)
         return current_week_start - timedelta(weeks=weeks_to_keep)
+
+    def _needs_progress_check(self, task, now: datetime) -> bool:
+        return self.due_scan_service._needs_progress_check(task, now)
 
     def _localize_task_datetimes(self, task) -> None:
         if task is None:
