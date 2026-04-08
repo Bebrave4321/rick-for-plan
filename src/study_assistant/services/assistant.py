@@ -15,6 +15,7 @@ from study_assistant.schemas.contracts import (
     UserSummary,
 )
 from study_assistant.services.assistant_brain import AssistantBrain
+from study_assistant.services.brain_result_handler import BrainResultHandler
 from study_assistant.services.button_action_handler import ButtonActionHandler
 from study_assistant.services.command_handler import CommandHandler
 from study_assistant.services.context_assembler import ContextAssembler
@@ -53,6 +54,7 @@ class StudyAssistantService:
         command_handler: CommandHandler | None = None,
         user_message_handler: UserMessageHandler | None = None,
         scheduler_event_handler: SchedulerEventHandler | None = None,
+        brain_result_handler: BrainResultHandler | None = None,
     ):
         self.settings = settings
         self.session_factory = session_factory
@@ -84,13 +86,17 @@ class StudyAssistantService:
             response_composer=self.response_composer,
             weekly_report_service=self.weekly_report_service,
         )
+        self.brain_result_handler = brain_result_handler or BrainResultHandler(
+            telegram_client=telegram_client,
+            text_action_handler=self.text_action_handler,
+        )
         self.user_message_handler = user_message_handler or UserMessageHandler(
             settings=settings,
             context_assembler=self.context_assembler,
             command_handler=self.command_handler,
             text_action_handler=self.text_action_handler,
             assistant_brain=self.assistant_brain,
-            telegram_client=telegram_client,
+            brain_result_handler=self.brain_result_handler,
         )
         self.scheduler_event_handler = scheduler_event_handler or SchedulerEventHandler(
             context_assembler=self.context_assembler,

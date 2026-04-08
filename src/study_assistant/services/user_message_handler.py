@@ -14,14 +14,14 @@ class UserMessageHandler:
         command_handler,
         text_action_handler,
         assistant_brain,
-        telegram_client,
+        brain_result_handler,
     ):
         self.settings = settings
         self.context_assembler = context_assembler
         self.command_handler = command_handler
         self.text_action_handler = text_action_handler
         self.assistant_brain = assistant_brain
-        self.telegram_client = telegram_client
+        self.brain_result_handler = brain_result_handler
 
     async def handle(self, *, repo, event, now: datetime) -> None:
         context = await self.context_assembler.build_message_context(
@@ -84,20 +84,10 @@ class UserMessageHandler:
             now=now,
         )
 
-        if brain_result.needs_clarification and not brain_result.actions:
-            clarification_text = brain_result.clarification_message or "말하려는 작업을 조금만 더 구체적으로 말해줄래요?"
-            await self.telegram_client.send_message(event.chat_id, clarification_text)
-            await repo.append_conversation_turn(
-                daily_conversation,
-                role="assistant",
-                text=clarification_text,
-                occurred_at=now,
-            )
-            return
-
-        await self.text_action_handler.apply_brain_result(
+        await self.brain_result_handler.handle(
             repo=repo,
             user=user,
+            chat_id=event.chat_id,
             active_task=active_task,
             today_tasks=today_tasks,
             brain_result=brain_result,
