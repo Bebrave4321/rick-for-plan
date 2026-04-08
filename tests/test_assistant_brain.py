@@ -41,7 +41,7 @@ def test_expand_actions_prefers_explicit_target_task_ids_for_multiple_scope():
     result = brain._build_result(
         interpreted=interpreted,
         source="openai",
-        text="수학이랑 영어 둘 다 못했어",
+        text="수학이랑 영어 둘 다 못했네",
         active_task=None,
         today_tasks=today_tasks,
         now=now,
@@ -83,13 +83,13 @@ def test_expand_actions_uses_llm_clarification_message_when_provided():
         target_scope="none",
         summary="Need clarification.",
         confidence=0.31,
-        clarification_message="오늘 일정 전체를 다시 짤까요, 아니면 특정 과목만 옮길까요?",
+        clarification_message="오늘 일정 전체를 다시 짤까요, 아니면 특정 과목만 볼까요?",
     )
 
     result = brain._build_result(
         interpreted=interpreted,
         source="openai",
-        text="오늘은 좀 망했어",
+        text="오늘은 좀 망했네",
         active_task=None,
         today_tasks=[],
         now=now,
@@ -97,4 +97,31 @@ def test_expand_actions_uses_llm_clarification_message_when_provided():
 
     assert result.actions == []
     assert result.needs_clarification is True
-    assert result.clarification_message == "오늘 일정 전체를 다시 짤까요, 아니면 특정 과목만 옮길까요?"
+    assert result.clarification_message == "오늘 일정 전체를 다시 짤까요, 아니면 특정 과목만 볼까요?"
+
+
+def test_expand_actions_uses_single_unfinished_task_when_no_active_task_exists():
+    brain = AssistantBrain(message_interpreter=DummyInterpreter())
+    now = datetime(2026, 3, 30, 20, 0)
+    today_tasks = [
+        make_task("english-1", "영어", "독해", end_at=now),
+    ]
+    interpreted = InterpretedMessage(
+        kind="mark_completed",
+        target_scope="active_task",
+        summary="Task completed.",
+        confidence=0.88,
+    )
+
+    result = brain._build_result(
+        interpreted=interpreted,
+        source="openai",
+        text="끝냈어",
+        active_task=None,
+        today_tasks=today_tasks,
+        now=now,
+    )
+
+    assert len(result.actions) == 1
+    assert result.actions[0].target_task_id == "english-1"
+    assert result.needs_clarification is False

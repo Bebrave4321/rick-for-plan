@@ -197,6 +197,14 @@ class AssistantBrain:
         if active_task is not None:
             return active_task
 
+        unfinished_tasks = [
+            task
+            for task in today_tasks
+            if getattr(task, "status", None) not in FINAL_TASK_STATUSES
+        ]
+        if len(unfinished_tasks) == 1:
+            return unfinished_tasks[0]
+
         return None
 
     def _match_tasks_by_hints(self, *, tasks, target_task_ids: list[str], mentioned_titles: list[str]) -> list[object]:

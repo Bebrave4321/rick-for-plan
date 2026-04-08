@@ -440,7 +440,7 @@ async def test_direct_free_text_reschedule_can_target_named_task_without_active_
             telegram_user_id=1010,
             chat_id=1010,
             display_name="LG",
-            text="영어 오늘 저녁 6시로 옮겨줘",
+            text="영어 내일 저녁 6시로 옮겨줘",
         )
 
         async with session_factory() as session:
@@ -449,6 +449,7 @@ async def test_direct_free_text_reschedule_can_target_named_task_without_active_
             ).scalars().all()
             by_title = {task.title: task for task in tasks}
             assert by_title["영어"].status == TaskStatus.RESCHEDULED
+            assert by_title["영어"].start_at.date() == (service.now().date() + timedelta(days=1))
             assert by_title["영어"].start_at.hour == 18
             assert by_title["영어"].start_at.minute == 0
             assert by_title["수학"].status == TaskStatus.PLANNED
