@@ -16,6 +16,7 @@ class AssistantContext:
     today_tasks: list[object] = field(default_factory=list)
     conversation_summary: str | None = None
     recent_dialogue: list[dict[str, str]] = field(default_factory=list)
+    dialogue_transcript: str | None = None
     last_user_turn: dict[str, str] | None = None
     last_assistant_turn: dict[str, str] | None = None
     active_prompt_kind: str | None = None
@@ -61,6 +62,7 @@ class ContextAssembler:
             today_tasks=today_tasks,
             conversation_summary=conversation_summary,
             recent_dialogue=recent_dialogue,
+            dialogue_transcript=self._dialogue_transcript(recent_dialogue),
             last_user_turn=self._last_turn_for_role(recent_dialogue, "user"),
             last_assistant_turn=self._last_turn_for_role(recent_dialogue, "assistant"),
             active_prompt_kind=self._active_prompt_kind(active_task),
@@ -105,6 +107,7 @@ class ContextAssembler:
             active_task=task,
             conversation_summary=conversation_summary,
             recent_dialogue=recent_dialogue,
+            dialogue_transcript=self._dialogue_transcript(recent_dialogue),
             last_user_turn=self._last_turn_for_role(recent_dialogue, "user"),
             last_assistant_turn=self._last_turn_for_role(recent_dialogue, "assistant"),
             active_prompt_kind=self._active_prompt_kind(task),
@@ -173,6 +176,21 @@ class ContextAssembler:
             if turn.get("role") == role:
                 return turn
         return None
+
+    def _dialogue_transcript(self, recent_dialogue: list[dict[str, str]]) -> str | None:
+        if not recent_dialogue:
+            return None
+
+        lines: list[str] = []
+        for turn in recent_dialogue[-6:]:
+            role = turn.get("role") or "unknown"
+            text = (turn.get("text") or "").strip()
+            if not text:
+                continue
+            lines.append(f"{role}: {text}")
+        if not lines:
+            return None
+        return "\n".join(lines)
 
     def _active_prompt_kind(self, task) -> str | None:
         if task is None or getattr(task, "pending_prompt_type", None) is None:

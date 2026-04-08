@@ -106,6 +106,10 @@ async def test_interpret_message_includes_recent_and_derived_dialogue_context():
                 "occurred_at": "2026-03-27T17:40:02+09:00",
             },
         ],
+        dialogue_transcript=(
+            "user: I am running late.\n"
+            "assistant: No problem. Tell me how you want to adjust it."
+        ),
         last_user_turn={"role": "user", "text": "I am running late.", "occurred_at": "2026-03-27T17:40:00+09:00"},
         last_assistant_turn={
             "role": "assistant",
@@ -125,13 +129,14 @@ async def test_interpret_message_includes_recent_and_derived_dialogue_context():
     prompt = json.loads(call["input"][1]["content"])
     assert prompt["conversation_summary"] == "User prefers practical replies."
     assert len(prompt["recent_dialogue"]) == 2
+    assert "user: I am running late." in prompt["dialogue_transcript"]
     assert prompt["current_date"] == "2026-03-27"
     assert prompt["current_time"] == "2026-03-27T18:00:00"
     assert prompt["last_user_turn"]["text"] == "I am running late."
     assert prompt["last_assistant_turn"]["text"] == "No problem. Tell me how you want to adjust it."
     assert prompt["active_prompt_kind"] == "reschedule"
     developer_prompt = call["input"][0]["content"]
-    assert "conversation_summary, recent_dialogue, last_user_turn, last_assistant_turn, and" in developer_prompt
+    assert "conversation_summary, recent_dialogue, dialogue_transcript, last_user_turn," in developer_prompt
     assert "active_prompt_kind" in developer_prompt
     assert "target_scope='multiple'" in developer_prompt
     assert "today 6 PM" not in developer_prompt  # sanity check that this test only inspects context additions

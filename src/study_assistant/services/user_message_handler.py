@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from study_assistant.models.entities import PendingPromptType
-
 
 class UserMessageHandler:
     def __init__(
@@ -12,14 +10,14 @@ class UserMessageHandler:
         settings,
         context_assembler,
         command_handler,
-        text_action_handler,
+        reschedule_followup_handler,
         assistant_brain,
         brain_result_handler,
     ):
         self.settings = settings
         self.context_assembler = context_assembler
         self.command_handler = command_handler
-        self.text_action_handler = text_action_handler
+        self.reschedule_followup_handler = reschedule_followup_handler
         self.assistant_brain = assistant_brain
         self.brain_result_handler = brain_result_handler
 
@@ -54,21 +52,15 @@ class UserMessageHandler:
         ):
             return
 
-        if (
-            active_task is not None
-            and active_task.pending_prompt_type == PendingPromptType.RESCHEDULE
-            and not command.startswith("/")
+        if await self.reschedule_followup_handler.handle(
+            repo=repo,
+            user=user,
+            active_task=active_task,
+            raw_text=event.text or "",
+            now=now,
+            daily_conversation=daily_conversation,
         ):
-            handled = await self.text_action_handler.handle_reschedule_followup(
-                repo=repo,
-                user=user,
-                task=active_task,
-                raw_text=event.text or "",
-                now=now,
-                daily_conversation=daily_conversation,
-            )
-            if handled:
-                return
+            return
 
         brain_result = await self.assistant_brain.interpret_message(
             text=event.text or "",
@@ -78,6 +70,7 @@ class UserMessageHandler:
             today_tasks=today_tasks,
             conversation_summary=context.conversation_summary,
             recent_dialogue=context.recent_dialogue,
+            dialogue_transcript=context.dialogue_transcript,
             last_user_turn=context.last_user_turn,
             last_assistant_turn=context.last_assistant_turn,
             active_prompt_kind=context.active_prompt_kind,

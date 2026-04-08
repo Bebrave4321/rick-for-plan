@@ -77,6 +77,9 @@ async def test_context_assembler_includes_recent_dialogue_and_derived_turns():
             )
 
         assert [turn["role"] for turn in context.recent_dialogue] == ["user", "assistant"]
+        assert context.dialogue_transcript is not None
+        assert "user: Can you move it to 6 PM?" in context.dialogue_transcript
+        assert "assistant: Sure, I can move it to 18:00." in context.dialogue_transcript
         assert context.last_user_turn is not None
         assert context.last_user_turn["text"] == "Can you move it to 6 PM?"
         assert context.last_assistant_turn is not None

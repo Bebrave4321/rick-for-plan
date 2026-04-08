@@ -23,6 +23,7 @@ from study_assistant.services.decision_engine import DecisionEngine
 from study_assistant.services.input_handler import InputHandler
 from study_assistant.services.internal_events import InternalEvent
 from study_assistant.services.response_composer import ResponseComposer
+from study_assistant.services.reschedule_followup_handler import RescheduleFollowupHandler
 from study_assistant.services.scheduler_event_handler import SchedulerEventHandler
 from study_assistant.services.task_executor import TaskExecutor
 from study_assistant.services.text_action_handler import TextActionHandler
@@ -55,6 +56,7 @@ class StudyAssistantService:
         user_message_handler: UserMessageHandler | None = None,
         scheduler_event_handler: SchedulerEventHandler | None = None,
         brain_result_handler: BrainResultHandler | None = None,
+        reschedule_followup_handler: RescheduleFollowupHandler | None = None,
     ):
         self.settings = settings
         self.session_factory = session_factory
@@ -86,6 +88,9 @@ class StudyAssistantService:
             response_composer=self.response_composer,
             weekly_report_service=self.weekly_report_service,
         )
+        self.reschedule_followup_handler = reschedule_followup_handler or RescheduleFollowupHandler(
+            text_action_handler=self.text_action_handler,
+        )
         self.brain_result_handler = brain_result_handler or BrainResultHandler(
             telegram_client=telegram_client,
             text_action_handler=self.text_action_handler,
@@ -94,7 +99,7 @@ class StudyAssistantService:
             settings=settings,
             context_assembler=self.context_assembler,
             command_handler=self.command_handler,
-            text_action_handler=self.text_action_handler,
+            reschedule_followup_handler=self.reschedule_followup_handler,
             assistant_brain=self.assistant_brain,
             brain_result_handler=self.brain_result_handler,
         )
