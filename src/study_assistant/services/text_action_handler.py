@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 from study_assistant.models.entities import FeedbackType, ResponseSource, TaskStatus
 from study_assistant.repositories.assistant_repository import FINAL_TASK_STATUSES
+from study_assistant.schemas.contracts import ActionProposal, BrainResult
 
 
 class TextActionHandler:
@@ -26,25 +27,37 @@ class TextActionHandler:
             "cancel_task",
         }
 
-    async def apply_interpreted_message(
+    async def apply_brain_result(
         self,
         *,
         repo,
         user,
         active_task,
         today_tasks,
-        interpreted,
+        brain_result: BrainResult,
         raw_text: str,
         now: datetime,
         daily_conversation=None,
     ) -> None:
+        primary_action = brain_result.primary_action
+        if primary_action is None:
+            await self._send_and_log(
+                repo,
+                daily_conversation=daily_conversation,
+                chat_id=user.telegram_chat_id,
+                text="메시지를 정확하게 이해하지 못했어요. 예를 들면 '완료했어요', '10분 미룰게요', '오늘은 못 했어요'처럼 보내주면 바로 반영할게요.",
+                now=now,
+            )
+            return
+
         resolved_task = self._resolve_action_task(
             active_task=active_task,
             today_tasks=today_tasks,
-            interpreted=interpreted,
+            primary_action=primary_action,
+            target_scope=brain_result.target_scope,
         )
 
-        if interpreted.kind == "weekly_plan_request":
+        if primary_action.kind == "weekly_plan_request":
             await self._send_and_log(
                 repo,
                 daily_conversation=daily_conversation,
@@ -57,7 +70,7 @@ class TextActionHandler:
             )
             return
 
-        if interpreted.kind == "weekly_plan_input":
+        if primary_action.kind == "weekly_plan_input":
             await self._send_and_log(
                 repo,
                 daily_conversation=daily_conversation,
@@ -67,7 +80,7 @@ class TextActionHandler:
             )
             return
 
-        if self.requires_active_task(interpreted.kind) and resolved_task is None and interpreted.target_scope != "multiple":
+        if self.requires_active_task(primary_action.kind) and resolved_task is None and brain_result.target_scope != "multiple":
             await self._send_and_log(
                 repo,
                 daily_conversation=daily_conversation,
@@ -89,14 +102,15 @@ class TextActionHandler:
             "cancel_task": self._handle_cancel_text_action,
             "replan_today": self._handle_replan_today_text_action,
         }
-        handler = handlers.get(interpreted.kind)
+        handler = handlers.get(primary_action.kind)
         if handler is not None:
             await handler(
                 repo=repo,
                 user=user,
                 active_task=resolved_task,
                 today_tasks=today_tasks,
-                interpreted=interpreted,
+                brain_result=brain_result,
+                action=primary_action,
                 raw_text=raw_text,
                 now=now,
                 daily_conversation=daily_conversation,
@@ -111,21 +125,17 @@ class TextActionHandler:
             now=now,
         )
 
-    def _resolve_action_task(self, *, active_task, today_tasks, interpreted):
-        if interpreted.target_scope == "multiple":
+    def _resolve_action_task(self, *, active_task, today_tasks, primary_action: ActionProposal, target_scope: str):
+        if target_scope == "multiple":
             return None
 
-        primary_action = getattr(interpreted, "primary_action", None)
-        if primary_action is None:
-            return active_task
-
-        target_task_id = getattr(primary_action, "target_task_id", None)
+        target_task_id = primary_action.target_task_id
         if target_task_id:
             for task in today_tasks:
                 if task.id == target_task_id:
                     return task
 
-        target_task_title = getattr(primary_action, "target_task_title", None)
+        target_task_title = primary_action.target_task_title
         if target_task_title:
             for task in today_tasks:
                 if task.title == target_task_title:
@@ -342,7 +352,8 @@ class TextActionHandler:
         repo,
         user,
         active_task,
-        interpreted,
+        brain_result,
+        action,
         raw_text: str,
         daily_conversation=None,
         now: datetime,
@@ -353,8 +364,8 @@ class TextActionHandler:
             active_task,
             source=ResponseSource.FREE_TEXT,
             raw_text=raw_text,
-            interpreted_kind=interpreted.kind,
-            interpreted_payload=interpreted.model_dump(mode="json"),
+            interpreted_kind=action.kind,
+            interpreted_payload=brain_result.model_dump(mode="json"),
             result_status=TaskStatus.PARTIAL,
             feedback_type=FeedbackType.DID_NOT_FINISH,
             lead_text=f"좋아요. '{active_task.title}'은 일부 한 것으로 기록했어요. 남은 분량은 다시 잡을까요?",
@@ -370,17 +381,18 @@ class TextActionHandler:
         user,
         active_task,
         today_tasks,
-        interpreted,
+        brain_result,
+        action,
         raw_text: str,
         now: datetime,
         daily_conversation=None,
         **kwargs,
     ) -> None:
-        if interpreted.target_scope == "multiple":
+        if brain_result.target_scope == "multiple":
             target_task_ids = {
-                action.target_task_id
-                for action in getattr(interpreted, "actions", [])
-                if getattr(action, "target_task_id", None)
+                proposal.target_task_id
+                for proposal in brain_result.actions
+                if proposal.target_task_id
             }
             if target_task_ids:
                 pending_tasks = [task for task in today_tasks if task.id in target_task_ids]
@@ -419,8 +431,8 @@ class TextActionHandler:
             active_task,
             source=ResponseSource.FREE_TEXT,
             raw_text=raw_text,
-            interpreted_kind=interpreted.kind,
-            interpreted_payload=interpreted.model_dump(mode="json"),
+            interpreted_kind=action.kind,
+            interpreted_payload=brain_result.model_dump(mode="json"),
             result_status=TaskStatus.MISSED,
             feedback_type=None,
             lead_text=f"알겠어요. '{active_task.title}'은 못 한 일정으로 기록했어요. 다시 잡을까요?",
@@ -435,7 +447,8 @@ class TextActionHandler:
         repo,
         user,
         active_task,
-        interpreted,
+        brain_result,
+        action,
         raw_text: str,
         now: datetime,
         daily_conversation=None,
@@ -484,9 +497,9 @@ class TextActionHandler:
             active_task,
             source=ResponseSource.FREE_TEXT,
             raw_text=raw_text,
-            interpreted_kind=interpreted.kind,
+            interpreted_kind=action.kind,
             interpreted_payload={
-                **interpreted.model_dump(mode="json"),
+                **brain_result.model_dump(mode="json"),
                 "decision_type": decision.decision_type,
                 "label": decision.parsed_time.label,
                 "start_at": decision.parsed_time.start_at.isoformat(),
@@ -507,7 +520,8 @@ class TextActionHandler:
         repo,
         user,
         active_task,
-        interpreted,
+        brain_result,
+        action,
         raw_text: str,
         now: datetime,
         daily_conversation=None,
@@ -518,8 +532,8 @@ class TextActionHandler:
             active_task,
             source=ResponseSource.FREE_TEXT,
             raw_text=raw_text,
-            interpreted_kind=interpreted.kind,
-            interpreted_payload=interpreted.model_dump(mode="json"),
+            interpreted_kind=action.kind,
+            interpreted_payload=brain_result.model_dump(mode="json"),
             result_status=TaskStatus.RESCHEDULED,
         )
         await self._send_and_log(
@@ -536,7 +550,8 @@ class TextActionHandler:
         repo,
         user,
         active_task,
-        interpreted,
+        brain_result,
+        action,
         raw_text: str,
         now: datetime,
         daily_conversation=None,
@@ -547,8 +562,8 @@ class TextActionHandler:
             active_task,
             source=ResponseSource.FREE_TEXT,
             raw_text=raw_text,
-            interpreted_kind=interpreted.kind,
-            interpreted_payload=interpreted.model_dump(mode="json"),
+            interpreted_kind=action.kind,
+            interpreted_payload=brain_result.model_dump(mode="json"),
             result_status=TaskStatus.RESCHEDULED,
         )
         await self._send_and_log(
@@ -565,13 +580,14 @@ class TextActionHandler:
         repo,
         user,
         active_task,
-        interpreted,
+        brain_result,
+        action,
         raw_text: str,
         now: datetime,
         daily_conversation=None,
         **kwargs,
     ) -> None:
-        minutes = interpreted.reschedule_minutes or 10
+        minutes = action.reschedule_minutes or 10
         await self.shift_task(
             repo,
             active_task,
@@ -583,8 +599,8 @@ class TextActionHandler:
             active_task,
             source=ResponseSource.FREE_TEXT,
             raw_text=raw_text,
-            interpreted_kind=interpreted.kind,
-            interpreted_payload=interpreted.model_dump(mode="json"),
+            interpreted_kind=action.kind,
+            interpreted_payload=brain_result.model_dump(mode="json"),
             result_status=TaskStatus.RESCHEDULED,
         )
         await self._send_and_log(
@@ -601,7 +617,8 @@ class TextActionHandler:
         repo,
         user,
         active_task,
-        interpreted,
+        brain_result,
+        action,
         raw_text: str,
         now: datetime,
         daily_conversation=None,
@@ -612,8 +629,8 @@ class TextActionHandler:
             active_task,
             source=ResponseSource.FREE_TEXT,
             raw_text=raw_text,
-            interpreted_kind=interpreted.kind,
-            interpreted_payload=interpreted.model_dump(mode="json"),
+            interpreted_kind=action.kind,
+            interpreted_payload=brain_result.model_dump(mode="json"),
             result_status=TaskStatus.CANCELLED,
         )
         await self._send_and_log(

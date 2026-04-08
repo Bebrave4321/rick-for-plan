@@ -95,12 +95,12 @@ class UserMessageHandler:
             )
             return
 
-        await self.text_action_handler.apply_interpreted_message(
+        await self.text_action_handler.apply_brain_result(
             repo=repo,
             user=user,
             active_task=active_task,
             today_tasks=today_tasks,
-            interpreted=brain_result,
+            brain_result=brain_result,
             raw_text=event.text or "",
             now=now,
             daily_conversation=daily_conversation,
